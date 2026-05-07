@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
+import BulbVisual from '@/components/BulbVisual.vue'
 
 const props = defineProps<{ deviceId: string }>()
 const emit = defineEmits<{ (e: 'removed'): void }>()
@@ -60,7 +61,9 @@ const handleRemove = () => {
         </span>
       </div>
       <div class="status-showcase">
-        <div class="status-ring" :class="{ 'status-ring--on': isOn }" aria-hidden="true" />
+        <div class="status-stage" :class="{ 'status-stage--on': isOn }">
+          <BulbVisual :on="isOn" size="md" />
+        </div>
         <div class="status-body">
           <p class="status-label">สถานะปัจจุบัน</p>
           <p class="status-headline" :class="{ 'status-headline--on': isOn }">
@@ -242,34 +245,39 @@ const handleRemove = () => {
   gap: 1rem;
 }
 
-.status-ring {
-  flex-shrink: 0;
-  width: 3.35rem;
-  height: 3.35rem;
-  border-radius: 50%;
-  background: conic-gradient(from 220deg, rgba(56, 189, 248, 0.15), rgba(167, 139, 250, 0.15));
-  border: 1px solid rgba(255, 255, 255, 0.12);
+.status-stage {
   position: relative;
-  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.03) inset;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 4.6rem;
+  height: 5.6rem;
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(circle at 50% 32%, rgba(148, 163, 184, 0.18), rgba(2, 6, 23, 0.55) 70%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  transition: background 0.45s ease;
 }
 
-.status-ring::after {
+.status-stage::before {
   content: '';
   position: absolute;
-  inset: 10px;
-  border-radius: 50%;
-  background: rgba(10, 14, 26, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 14px 14px;
+  mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
+  opacity: 0.32;
+  pointer-events: none;
 }
 
-.status-ring--on {
-  background: conic-gradient(from 140deg, rgba(74, 222, 128, 0.55), rgba(56, 189, 248, 0.35));
-  box-shadow: 0 0 32px var(--on-glow);
-  animation: pulse-ring 2.4s ease-in-out infinite;
-}
-
-.status-ring--on::after {
-  box-shadow: 0 0 24px rgba(74, 222, 128, 0.25) inset;
+.status-stage--on {
+  background:
+    radial-gradient(circle at 50% 34%, rgba(250, 204, 21, 0.22), rgba(2, 6, 23, 0.55) 65%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
 }
 
 .status-body {
@@ -580,21 +588,7 @@ const handleRemove = () => {
   outline-offset: 2px;
 }
 
-@keyframes pulse-ring {
-  0%,
-  100% {
-    box-shadow: 0 0 32px var(--on-glow);
-  }
-  50% {
-    box-shadow: 0 0 48px rgba(74, 222, 128, 0.55);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .status-ring--on {
-    animation: none;
-  }
-
   .toggle-button {
     transition: none;
   }

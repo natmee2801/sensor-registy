@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
 import type { Device } from '@/types/device'
+import BulbVisual from '@/components/BulbVisual.vue'
 
 const props = defineProps<{ device: Device }>()
 
@@ -48,6 +49,10 @@ const handleQuickToggle = (event: Event) => {
       <span v-if="state?.lastUpdatedAt" class="device-card__time">
         {{ formatThaiDateTime(state.lastUpdatedAt) }}
       </span>
+    </div>
+
+    <div class="device-card__stage" :class="{ 'device-card__stage--on': isOn }">
+      <BulbVisual :on="isOn" size="md" />
     </div>
 
     <button
@@ -158,6 +163,41 @@ const handleQuickToggle = (event: Event) => {
   color: rgba(148, 163, 184, 0.95);
 }
 
+.device-card__stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 6rem;
+  padding: 0.55rem 0.5rem 0.35rem;
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(circle at 50% 30%, rgba(148, 163, 184, 0.18), rgba(2, 6, 23, 0.55) 70%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  transition: background 0.45s ease;
+}
+
+.device-card__stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 14px 14px;
+  mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.device-card__stage--on {
+  background:
+    radial-gradient(circle at 50% 32%, rgba(250, 204, 21, 0.2), rgba(2, 6, 23, 0.55) 65%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
+}
+
 .device-card__toggle {
   width: 100%;
   padding: 0.6rem 0.9rem;
@@ -192,4 +232,5 @@ const handleQuickToggle = (event: Event) => {
   color: rgba(226, 232, 240, 0.7);
   box-shadow: none;
 }
+
 </style>

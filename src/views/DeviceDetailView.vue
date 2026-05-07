@@ -4,14 +4,16 @@ import { RouterLink, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
 import DeviceControl from '@/components/DeviceControl.vue'
+import BulbVisual from '@/components/BulbVisual.vue'
 
 const props = defineProps<{ id: string }>()
 
 const router = useRouter()
 const store = useDevicesStore()
-const { devices } = storeToRefs(store)
+const { devices, states } = storeToRefs(store)
 
 const device = computed(() => devices.value[props.id] ?? null)
+const isOn = computed(() => states.value[props.id]?.isOn ?? false)
 
 const handleRemoved = () => {
   router.push({ name: 'devices' })
@@ -24,22 +26,8 @@ const formatThaiDate = (isoDate: string) =>
 <template>
   <section v-if="device" class="device-detail">
     <header class="device-detail__hero">
-      <div class="device-detail__bulb" aria-hidden="true">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          class="device-detail__bulb-svg"
-        >
-          <path
-            d="M9 21h6M10 18h4M12 3a5 5 0 0 0-2.5 9.33V17a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-4.67A5 5 0 0 0 12 3Z"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          <path d="M12 9v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-        </svg>
+      <div class="device-detail__stage" :class="{ 'device-detail__stage--on': isOn }">
+        <BulbVisual :on="isOn" size="lg" />
       </div>
       <div class="device-detail__info">
         <p class="device-detail__eyebrow">device_id</p>
@@ -74,24 +62,42 @@ const formatThaiDate = (isoDate: string) =>
   gap: 1rem;
 }
 
-.device-detail__bulb {
+.device-detail__stage {
   display: grid;
   place-items: center;
-  width: 4rem;
-  height: 4rem;
-  border-radius: 1.1rem;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  width: 6.5rem;
+  height: 8rem;
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 50% 30%, rgba(148, 163, 184, 0.18), rgba(2, 6, 23, 0.5) 70%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
   border: 1px solid var(--stroke);
-  color: rgba(226, 232, 240, 0.85);
   flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+  transition: background 0.45s ease;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.06) inset,
     0 18px 44px rgba(0, 0, 0, 0.4);
 }
 
-.device-detail__bulb-svg {
-  width: 2rem;
-  height: 2rem;
+.device-detail__stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 16px 16px;
+  mask-image: radial-gradient(ellipse at center, black 0%, transparent 72%);
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+.device-detail__stage--on {
+  background:
+    radial-gradient(circle at 50% 32%, rgba(250, 204, 21, 0.22), rgba(2, 6, 23, 0.5) 65%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
 }
 
 .device-detail__info {
