@@ -1,0 +1,602 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useDevicesStore } from '@/stores/devices'
+
+const props = defineProps<{ deviceId: string }>()
+const emit = defineEmits<{ (e: 'removed'): void }>()
+
+const store = useDevicesStore()
+const { states } = storeToRefs(store)
+
+const state = computed(() => states.value[props.deviceId])
+const isOn = computed(() => state.value?.isOn ?? false)
+const controlMode = computed(() => state.value?.controlMode ?? 'manual')
+const autoOnTime = computed({
+  get: () => state.value?.autoOnTime ?? '18:00',
+  set: (value) => {
+    if (!state.value) return
+    store.setAutoTimes(props.deviceId, value, state.value.autoOffTime)
+  },
+})
+const autoOffTime = computed({
+  get: () => state.value?.autoOffTime ?? '23:00',
+  set: (value) => {
+    if (!state.value) return
+    store.setAutoTimes(props.deviceId, state.value.autoOnTime, value)
+  },
+})
+
+const sameTimeWarning = computed(
+  () => controlMode.value === 'auto' && autoOnTime.value === autoOffTime.value,
+)
+
+const handleModeChange = (event: Event) => {
+  const value = (event.target as HTMLInputElement).value
+  if (value === 'manual' || value === 'auto') {
+    store.setMode(props.deviceId, value)
+  }
+}
+
+const formatThaiDateTime = (isoDate: string) =>
+  new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'medium' }).format(
+    new Date(isoDate),
+  )
+
+const handleRemove = () => {
+  if (!window.confirm(`ลบอุปกรณ์ ${props.deviceId}?`)) return
+  store.removeDevice(props.deviceId)
+  emit('removed')
+}
+</script>
+
+<template>
+  <div v-if="state" class="device-control">
+    <div class="light-status-card">
+      <div class="card-head">
+        <h2 class="card-title">สถานะล่าสุด</h2>
+        <span class="card-badge" :class="{ 'card-badge--on': isOn }">
+          {{ isOn ? 'กำลังทำงาน' : 'พักอยู่' }}
+        </span>
+      </div>
+      <div class="status-showcase">
+        <div class="status-ring" :class="{ 'status-ring--on': isOn }" aria-hidden="true" />
+        <div class="status-body">
+          <p class="status-label">สถานะปัจจุบัน</p>
+          <p class="status-headline" :class="{ 'status-headline--on': isOn }">
+            {{ isOn ? 'เปิดอยู่' : 'ปิดอยู่' }}
+          </p>
+          <p v-if="state.lastUpdatedAt" class="updated-time">
+            อัปเดตล่าสุด · {{ formatThaiDateTime(state.lastUpdatedAt) }}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="light-control-card">
+      <h2 class="card-title card-title--solo">การควบคุม</h2>
+
+      <div class="segmented" role="radiogroup" aria-label="โหมดการทำงาน">
+        <label
+          class="segmented__option"
+          :class="{ 'segmented__option--active': controlMode === 'manual' }"
+        >
+          <input
+            class="segmented__input"
+            type="radio"
+            :checked="controlMode === 'manual'"
+            value="manual"
+            @change="handleModeChange"
+          />
+          <span class="segmented__label">ควบคุมเอง</span>
+        </label>
+        <label
+          class="segmented__option"
+          :class="{ 'segmented__option--active': controlMode === 'auto' }"
+        >
+          <input
+            class="segmented__input"
+            type="radio"
+            :checked="controlMode === 'auto'"
+            value="auto"
+            @change="handleModeChange"
+          />
+          <span class="segmented__label">ตั้งเวลาอัตโนมัติ</span>
+        </label>
+      </div>
+
+      <div class="schedule-block" :class="{ 'schedule-block--disabled': controlMode !== 'auto' }">
+        <p class="schedule-hint">ใช้เมื่อเลือกโหมดตั้งเวลา — ระบบจะตรวจทุก ๆ 30 วินาที</p>
+        <div class="schedule-grid">
+          <label class="time-field">
+            <span class="time-field__label">เวลาเปิด</span>
+            <input
+              v-model="autoOnTime"
+              class="time-field__input"
+              type="time"
+              :disabled="controlMode !== 'auto'"
+            />
+          </label>
+          <label class="time-field">
+            <span class="time-field__label">เวลาปิด</span>
+            <input
+              v-model="autoOffTime"
+              class="time-field__input"
+              type="time"
+              :disabled="controlMode !== 'auto'"
+            />
+          </label>
+        </div>
+        <p v-if="sameTimeWarning" class="schedule-warning">
+          เวลาเปิดและเวลาปิดเหมือนกัน — ระบบจะไม่เปิดไฟอัตโนมัติ
+        </p>
+      </div>
+
+      <button
+        type="button"
+        class="toggle-button"
+        :class="{ 'toggle-button--off': !isOn && controlMode !== 'auto' }"
+        :disabled="controlMode === 'auto'"
+        @click="store.toggleDevice(deviceId)"
+      >
+        <span class="toggle-button__shine" aria-hidden="true" />
+        <span class="toggle-button__text">
+          {{
+            controlMode === 'auto'
+              ? 'โหมดอัตโนมัติกำลังควบคุมอยู่'
+              : isOn
+                ? 'ปิดหลอดไฟ'
+                : 'เปิดหลอดไฟ'
+          }}
+        </span>
+      </button>
+    </div>
+
+    <div class="light-history-card">
+      <h2 class="card-title card-title--solo">ประวัติการเปลี่ยนสถานะ</h2>
+      <ul v-if="state.history.length > 0" class="history-list">
+        <li
+          v-for="(item, index) in state.history"
+          :key="`${item.updatedAt}-${index}`"
+          class="history-item"
+        >
+          <span class="history-dot" :class="{ 'history-dot--on': item.isOn }" aria-hidden="true" />
+          <div class="history-main">
+            <span class="history-status" :class="{ 'history-status--on': item.isOn }">
+              {{ item.isOn ? 'เปิด' : 'ปิด' }}
+            </span>
+            <span class="history-time">{{ formatThaiDateTime(item.updatedAt) }}</span>
+          </div>
+        </li>
+      </ul>
+      <p v-else class="history-empty">ยังไม่มีประวัติ — ลองสลับสถานะเพื่อดูรายการที่นี่</p>
+    </div>
+
+    <button type="button" class="remove-button" @click="handleRemove">
+      ลบอุปกรณ์นี้
+    </button>
+  </div>
+</template>
+
+<style scoped>
+.device-control {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.light-status-card,
+.light-control-card,
+.light-history-card {
+  padding: 1.15rem 1.2rem;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(203, 213, 225, 0.92);
+}
+
+.card-title--solo {
+  margin-bottom: 1rem;
+}
+
+.card-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.15);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.card-badge--on {
+  background: rgba(74, 222, 128, 0.15);
+  color: #bbf7d0;
+  border-color: rgba(74, 222, 128, 0.35);
+}
+
+.status-showcase {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.status-ring {
+  flex-shrink: 0;
+  width: 3.35rem;
+  height: 3.35rem;
+  border-radius: 50%;
+  background: conic-gradient(from 220deg, rgba(56, 189, 248, 0.15), rgba(167, 139, 250, 0.15));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  position: relative;
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.03) inset;
+}
+
+.status-ring::after {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  background: rgba(10, 14, 26, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.status-ring--on {
+  background: conic-gradient(from 140deg, rgba(74, 222, 128, 0.55), rgba(56, 189, 248, 0.35));
+  box-shadow: 0 0 32px var(--on-glow);
+  animation: pulse-ring 2.4s ease-in-out infinite;
+}
+
+.status-ring--on::after {
+  box-shadow: 0 0 24px rgba(74, 222, 128, 0.25) inset;
+}
+
+.status-body {
+  min-width: 0;
+}
+
+.status-label {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.status-headline {
+  margin: 0.2rem 0 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #e2e8f0;
+}
+
+.status-headline--on {
+  color: #bbf7d0;
+  text-shadow: 0 0 28px rgba(74, 222, 128, 0.35);
+}
+
+.updated-time {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  padding: 0.3rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 1rem;
+}
+
+.segmented__option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 0.5rem;
+  border-radius: 999px;
+  cursor: pointer;
+  color: rgba(226, 232, 240, 0.75);
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.segmented__option--active {
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.12) inset,
+    0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.segmented__input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.segmented__option:focus-within {
+  outline: 2px solid rgba(56, 189, 248, 0.55);
+  outline-offset: 2px;
+}
+
+.schedule-block {
+  margin-bottom: 0.25rem;
+  transition: opacity 0.25s ease;
+}
+
+.schedule-block--disabled {
+  opacity: 0.48;
+  pointer-events: none;
+}
+
+.schedule-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.schedule-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.schedule-warning {
+  margin: 0.65rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--amber);
+}
+
+.time-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.time-field__label {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: rgba(203, 213, 225, 0.95);
+}
+
+.time-field__input {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.65rem;
+  background: rgba(6, 9, 18, 0.65);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.time-field__input:focus {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.45);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+}
+
+.time-field__input:disabled {
+  opacity: 0.55;
+}
+
+.toggle-button {
+  position: relative;
+  margin-top: 1rem;
+  width: 100%;
+  overflow: hidden;
+  padding: 0.85rem 1rem;
+  border: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #042f1a;
+  background: linear-gradient(100deg, #4ade80 0%, #22c55e 45%, #16a34a 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 18px 40px rgba(34, 197, 94, 0.35);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
+}
+
+.toggle-button--off {
+  color: #f8fafc;
+  background: linear-gradient(100deg, rgba(56, 189, 248, 0.95) 0%, rgba(99, 102, 241, 0.95) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.2) inset,
+    0 18px 40px rgba(99, 102, 241, 0.35);
+}
+
+.toggle-button__shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.22) 48%, transparent 62%);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.toggle-button:hover:not(:disabled) .toggle-button__shine {
+  opacity: 1;
+}
+
+.toggle-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+}
+
+.toggle-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.toggle-button:disabled {
+  cursor: not-allowed;
+  color: rgba(226, 232, 240, 0.75);
+  background: rgba(51, 65, 85, 0.55);
+  box-shadow: none;
+  filter: none;
+}
+
+.toggle-button:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.75);
+  outline-offset: 3px;
+}
+
+.toggle-button__text {
+  position: relative;
+}
+
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.history-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+}
+
+.history-item + .history-item {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.history-dot {
+  margin-top: 0.35rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(248, 113, 113, 0.85);
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.45);
+}
+
+.history-dot--on {
+  background: rgba(74, 222, 128, 0.95);
+  box-shadow: 0 0 12px rgba(74, 222, 128, 0.45);
+}
+
+.history-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.history-status {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #fecaca;
+}
+
+.history-status--on {
+  color: #bbf7d0;
+}
+
+.history-time {
+  font-size: 0.78rem;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.history-empty {
+  margin: 0;
+  padding: 0.35rem 0 0.15rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.remove-button {
+  align-self: flex-end;
+  padding: 0.5rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.08);
+  color: #fecaca;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.remove-button:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fee2e2;
+}
+
+.remove-button:focus-visible {
+  outline: 2px solid rgba(248, 113, 113, 0.65);
+  outline-offset: 2px;
+}
+
+@keyframes pulse-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 32px var(--on-glow);
+  }
+  50% {
+    box-shadow: 0 0 48px rgba(74, 222, 128, 0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-ring--on {
+    animation: none;
+  }
+
+  .toggle-button {
+    transition: none;
+  }
+}
+</style>
