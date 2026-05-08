@@ -57,6 +57,27 @@ const computeShouldBeOn = (now: Date, onTime: string, offTime: string): boolean 
     : currentMinutes >= onMinutes || currentMinutes < offMinutes
 }
 
+const normalizeState = (raw: Partial<DeviceState>): DeviceState => {
+  const base = createDefaultState()
+  return {
+    isOn: raw.isOn ?? base.isOn,
+    lastUpdatedAt: raw.lastUpdatedAt ?? base.lastUpdatedAt,
+    controlMode: raw.controlMode ?? base.controlMode,
+    autoOnTime: raw.autoOnTime ?? base.autoOnTime,
+    autoOffTime: raw.autoOffTime ?? base.autoOffTime,
+    history: raw.history ?? base.history,
+    offTimerEndsAt: raw.offTimerEndsAt ?? base.offTimerEndsAt,
+  }
+}
+
+const normalizeStates = (raw: Record<string, Partial<DeviceState>>): Record<string, DeviceState> => {
+  const out: Record<string, DeviceState> = {}
+  for (const [id, value] of Object.entries(raw)) {
+    out[id] = normalizeState(value)
+  }
+  return out
+}
+
 const migrateLegacyIfPresent = (): {
   devices: Record<string, Device>
   states: Record<string, DeviceState>
@@ -83,14 +104,14 @@ const migrateLegacyIfPresent = (): {
     location: 'อุปกรณ์เดิม',
     createdAt: legacyUpdatedAt ?? new Date().toISOString(),
   }
-  const state: DeviceState = {
+  const state: DeviceState = normalizeState({
     isOn: legacyStatus,
     lastUpdatedAt: legacyUpdatedAt,
     controlMode: legacyMode === 'auto' ? 'auto' : 'manual',
     autoOnTime: legacyOnTime,
     autoOffTime: legacyOffTime,
     history: legacyHistory.slice(0, HISTORY_LIMIT),
-  }
+  })
 
   LEGACY_KEYS.forEach((key) => localStorage.removeItem(key))
   return { devices: { [id]: device }, states: { [id]: state } }
@@ -106,7 +127,9 @@ const loadInitial = () => {
 
   return {
     devices: safeParse<Record<string, Device>>(localStorage.getItem(DEVICES_KEY), {}),
-    states: safeParse<Record<string, DeviceState>>(localStorage.getItem(STATES_KEY), {}),
+    states: normalizeStates(
+      safeParse<Record<string, Partial<DeviceState>>>(localStorage.getItem(STATES_KEY), {}),
+    ),
   }
 }
 
@@ -182,6 +205,19 @@ export const useDevicesStore = defineStore('devices', () => {
     state.isOn = nextOn
     state.lastUpdatedAt = timestamp
     state.history = [{ isOn: nextOn, updatedAt: timestamp }, ...state.history].slice(0, HISTORY_LIMIT)
+    if (!nextOn) state.offTimerEndsAt = null
+  }
+
+  const processOffTimer = (id: string, now: Date) => {
+    const state = states.value[id]
+    if (!state || state.offTimerEndsAt === null) return
+    if (new Date(state.offTimerEndsAt).getTime() <= now.getTime()) {
+      if (state.isOn) {
+        applyToggle(id, false, now.toISOString())
+      } else {
+        state.offTimerEndsAt = null
+      }
+    }
   }
 
   const registerDevice = (rawId: string, rawLocation: string): { ok: true; id: string } | { ok: false; errors: ValidationError[] } => {
@@ -219,6 +255,7 @@ export const useDevicesStore = defineStore('devices', () => {
     const state = states.value[id]
     if (!state) return
     state.controlMode = mode
+    if (mode === 'auto') state.offTimerEndsAt = null
     applyAutoSchedule(id)
   }
 
@@ -230,9 +267,24 @@ export const useDevicesStore = defineStore('devices', () => {
     applyAutoSchedule(id)
   }
 
+  const startOffTimer = (id: string, durationMs: number) => {
+    const state = states.value[id]
+    if (!state || !state.isOn || state.controlMode !== 'manual') return
+    state.offTimerEndsAt = new Date(Date.now() + durationMs).toISOString()
+  }
+
+  const cancelOffTimer = (id: string) => {
+    const state = states.value[id]
+    if (!state) return
+    state.offTimerEndsAt = null
+  }
+
   const tick = () => {
     const now = new Date()
-    Object.keys(states.value).forEach((id) => applyAutoSchedule(id, now))
+    Object.keys(states.value).forEach((id) => {
+      processOffTimer(id, now)
+      applyAutoSchedule(id, now)
+    })
   }
 
   if (typeof window !== 'undefined') {
@@ -290,6 +342,8 @@ export const useDevicesStore = defineStore('devices', () => {
     toggleDevice,
     setMode,
     setAutoTimes,
+    startOffTimer,
+    cancelOffTimer,
     tick,
   }
 })

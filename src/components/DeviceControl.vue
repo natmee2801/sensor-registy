@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
 import BulbVisual from '@/components/BulbVisual.vue'
@@ -27,6 +27,67 @@ const autoOffTime = computed({
     store.setAutoTimes(props.deviceId, state.value.autoOnTime, value)
   },
 })
+
+const timerPresets = [
+  { label: '5 นาที', minutes: 5 },
+  { label: '15 นาที', minutes: 15 },
+  { label: '30 นาที', minutes: 30 },
+  { label: '1 ชม.', minutes: 60 },
+]
+
+const now = ref(Date.now())
+let nowInterval: ReturnType<typeof setInterval> | null = null
+
+const stopInterval = () => {
+  if (nowInterval !== null) {
+    clearInterval(nowInterval)
+    nowInterval = null
+  }
+}
+
+watch(
+  () => state.value?.offTimerEndsAt ?? null,
+  (endsAt) => {
+    if (endsAt !== null && nowInterval === null) {
+      now.value = Date.now()
+      nowInterval = setInterval(() => {
+        now.value = Date.now()
+        const current = state.value?.offTimerEndsAt
+        if (current !== null && current !== undefined && new Date(current).getTime() <= now.value) {
+          store.tick()
+        }
+      }, 1000)
+    } else if (endsAt === null) {
+      stopInterval()
+    }
+  },
+  { immediate: true },
+)
+
+onUnmounted(stopInterval)
+
+const timerEndMs = computed(() =>
+  state.value?.offTimerEndsAt ? new Date(state.value.offTimerEndsAt).getTime() : null,
+)
+const remainingMs = computed(() =>
+  timerEndMs.value === null ? 0 : Math.max(0, timerEndMs.value - now.value),
+)
+const timerActive = computed(() => timerEndMs.value !== null && remainingMs.value > 0)
+
+const formatRemaining = (ms: number) => {
+  const totalSec = Math.ceil(ms / 1000)
+  const mm = Math.floor(totalSec / 60)
+  const ss = totalSec % 60
+  return `${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`
+}
+
+const handleStartTimer = (minutes: number) => {
+  store.startOffTimer(props.deviceId, minutes * 60 * 1000)
+}
+
+const handleCancelTimer = () => {
+  store.cancelOffTimer(props.deviceId)
+}
 
 const sameTimeWarning = computed(
   () => controlMode.value === 'auto' && autoOnTime.value === autoOffTime.value,
@@ -155,6 +216,37 @@ const handleRemove = () => {
       </button>
     </div>
 
+    <div v-if="isOn && controlMode === 'manual'" class="light-timer-card">
+      <div class="card-head">
+        <h2 class="card-title">ตัวจับเวลาปิด</h2>
+        <span v-if="timerActive" class="card-badge card-badge--timer">
+          {{ formatRemaining(remainingMs) }}
+        </span>
+      </div>
+
+      <div v-if="!timerActive" class="timer-presets">
+        <button
+          v-for="preset in timerPresets"
+          :key="preset.label"
+          type="button"
+          class="timer-preset"
+          @click="handleStartTimer(preset.minutes)"
+        >
+          {{ preset.label }}
+        </button>
+      </div>
+
+      <div v-else class="timer-active">
+        <div class="timer-display">
+          <span class="timer-display__value">{{ formatRemaining(remainingMs) }}</span>
+          <span class="timer-display__label">ก่อนปิดอัตโนมัติ</span>
+        </div>
+        <button type="button" class="timer-cancel" @click="handleCancelTimer">
+          ยกเลิกตัวจับเวลา
+        </button>
+      </div>
+    </div>
+
     <div class="light-history-card">
       <h2 class="card-title card-title--solo">ประวัติการเปลี่ยนสถานะ</h2>
       <ul v-if="state.history.length > 0" class="history-list">
@@ -190,6 +282,7 @@ const handleRemove = () => {
 
 .light-status-card,
 .light-control-card,
+.light-timer-card,
 .light-history-card {
   padding: 1.15rem 1.2rem;
   border-radius: var(--radius-lg);
@@ -586,6 +679,95 @@ const handleRemove = () => {
 .remove-button:focus-visible {
   outline: 2px solid rgba(248, 113, 113, 0.65);
   outline-offset: 2px;
+}
+
+.card-badge--timer {
+  font-variant-numeric: tabular-nums;
+  background: rgba(56, 189, 248, 0.18);
+  color: #bae6fd;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.timer-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5.2rem, 1fr));
+  gap: 0.5rem;
+}
+
+.timer-preset {
+  padding: 0.65rem 0.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.55);
+  color: rgba(226, 232, 240, 0.92);
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.timer-preset:hover {
+  background: rgba(56, 189, 248, 0.14);
+  border-color: rgba(56, 189, 248, 0.45);
+  transform: translateY(-1px);
+}
+
+.timer-preset:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.65);
+  outline-offset: 2px;
+}
+
+.timer-active {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.timer-display {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.timer-display__value {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 1.85rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #bae6fd;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 28px rgba(56, 189, 248, 0.35);
+}
+
+.timer-display__label {
+  font-size: 0.78rem;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.timer-cancel {
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.08);
+  color: #fecaca;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.timer-cancel:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.55);
 }
 
 @media (prefers-reduced-motion: reduce) {

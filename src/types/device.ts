@@ -18,6 +18,7 @@ export interface DeviceState {
   autoOnTime: string
   autoOffTime: string
   history: HistoryEntry[]
+  offTimerEndsAt: string | null
 }
 
 export const createDefaultState = (): DeviceState => ({
@@ -27,4 +28,5 @@ export const createDefaultState = (): DeviceState => ({
   autoOnTime: '18:00',
   autoOffTime: '23:00',
   history: [],
+  offTimerEndsAt: null,
 })
