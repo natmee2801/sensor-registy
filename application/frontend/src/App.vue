@@ -6,15 +6,13 @@ import { useDevicesStore } from '@/stores/devices'
 
 const store = useDevicesStore()
 
-let scheduleTimer: ReturnType<typeof setInterval> | null = null
-
 onMounted(() => {
-  store.tick()
-  scheduleTimer = setInterval(() => store.tick(), 30 * 1000)
+  store.refreshAll().catch(() => {})
+  store.subscribeEvents()
 })
 
 onUnmounted(() => {
-  if (scheduleTimer !== null) clearInterval(scheduleTimer)
+  store.unsubscribeEvents()
 })
 </script>
 

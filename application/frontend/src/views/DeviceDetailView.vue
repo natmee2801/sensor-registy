@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
@@ -14,6 +14,10 @@ const { devices, states } = storeToRefs(store)
 
 const device = computed(() => devices.value[props.id] ?? null)
 const isOn = computed(() => states.value[props.id]?.isOn ?? false)
+
+onMounted(() => {
+  if (!device.value) store.refreshDevice(props.id).catch(() => {})
+})
 
 const handleRemoved = () => {
   router.push({ name: 'devices' })

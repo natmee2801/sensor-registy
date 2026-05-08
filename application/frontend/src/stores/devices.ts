@@ -1,26 +1,9 @@
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import {
-  type ControlMode,
-  type Device,
-  type DeviceState,
-  type HistoryEntry,
-  createDefaultState,
-} from '@/types/device'
+import * as api from '@/services/api'
+import { ApiError } from '@/services/api'
+import type { ControlMode, Device, DeviceLog, DeviceState } from '@/types/device'
 
-const DEVICES_KEY = 'sensor-registry:devices'
-const STATES_KEY = 'sensor-registry:device-states'
-
-const LEGACY_KEYS = [
-  'bulb-light-status',
-  'bulb-light-updated-at',
-  'bulb-light-history',
-  'bulb-light-mode',
-  'bulb-light-auto-on-time',
-  'bulb-light-auto-off-time',
-]
-
-const HISTORY_LIMIT = 10
 const ID_MAX = 64
 const LOCATION_MAX = 80
 const ID_PATTERN = /^[A-Za-z0-9_-]+$/
@@ -30,123 +13,26 @@ export interface ValidationError {
   message: string
 }
 
-const safeParse = <T>(raw: string | null, fallback: T): T => {
-  if (raw === null) return fallback
-  try {
-    return JSON.parse(raw) as T
-  } catch {
-    return fallback
-  }
-}
-
-const parseHourMinute = (time: string): number => {
-  const [hourText = '0', minuteText = '0'] = time.split(':')
-  const hour = Number(hourText)
-  const minute = Number(minuteText)
-  if (Number.isNaN(hour) || Number.isNaN(minute)) return 0
-  return hour * 60 + minute
-}
-
-const computeShouldBeOn = (now: Date, onTime: string, offTime: string): boolean => {
-  const onMinutes = parseHourMinute(onTime)
-  const offMinutes = parseHourMinute(offTime)
-  if (onMinutes === offMinutes) return false
-  const currentMinutes = now.getHours() * 60 + now.getMinutes()
-  return onMinutes < offMinutes
-    ? currentMinutes >= onMinutes && currentMinutes < offMinutes
-    : currentMinutes >= onMinutes || currentMinutes < offMinutes
-}
-
-const normalizeState = (raw: Partial<DeviceState>): DeviceState => {
-  const base = createDefaultState()
-  return {
-    isOn: raw.isOn ?? base.isOn,
-    lastUpdatedAt: raw.lastUpdatedAt ?? base.lastUpdatedAt,
-    controlMode: raw.controlMode ?? base.controlMode,
-    autoOnTime: raw.autoOnTime ?? base.autoOnTime,
-    autoOffTime: raw.autoOffTime ?? base.autoOffTime,
-    history: raw.history ?? base.history,
-    offTimerEndsAt: raw.offTimerEndsAt ?? base.offTimerEndsAt,
-  }
-}
-
-const normalizeStates = (raw: Record<string, Partial<DeviceState>>): Record<string, DeviceState> => {
-  const out: Record<string, DeviceState> = {}
-  for (const [id, value] of Object.entries(raw)) {
-    out[id] = normalizeState(value)
-  }
-  return out
-}
-
-const migrateLegacyIfPresent = (): {
-  devices: Record<string, Device>
-  states: Record<string, DeviceState>
-} | null => {
-  if (typeof window === 'undefined') return null
-  if (localStorage.getItem(DEVICES_KEY) !== null) return null
-
-  const hasLegacy = LEGACY_KEYS.some((key) => localStorage.getItem(key) !== null)
-  if (!hasLegacy) return null
-
-  const legacyStatus = localStorage.getItem('bulb-light-status') === 'true'
-  const legacyUpdatedAt = localStorage.getItem('bulb-light-updated-at')
-  const legacyHistory = safeParse<HistoryEntry[]>(
-    localStorage.getItem('bulb-light-history'),
-    [],
-  )
-  const legacyMode = localStorage.getItem('bulb-light-mode')
-  const legacyOnTime = localStorage.getItem('bulb-light-auto-on-time') ?? '18:00'
-  const legacyOffTime = localStorage.getItem('bulb-light-auto-off-time') ?? '23:00'
-
-  const id = 'default'
-  const device: Device = {
-    id,
-    location: 'อุปกรณ์เดิม',
-    createdAt: legacyUpdatedAt ?? new Date().toISOString(),
-  }
-  const state: DeviceState = normalizeState({
-    isOn: legacyStatus,
-    lastUpdatedAt: legacyUpdatedAt,
-    controlMode: legacyMode === 'auto' ? 'auto' : 'manual',
-    autoOnTime: legacyOnTime,
-    autoOffTime: legacyOffTime,
-    history: legacyHistory.slice(0, HISTORY_LIMIT),
-  })
-
-  LEGACY_KEYS.forEach((key) => localStorage.removeItem(key))
-  return { devices: { [id]: device }, states: { [id]: state } }
-}
-
-const loadInitial = () => {
-  if (typeof window === 'undefined') {
-    return { devices: {} as Record<string, Device>, states: {} as Record<string, DeviceState> }
-  }
-
-  const migrated = migrateLegacyIfPresent()
-  if (migrated) return migrated
-
-  return {
-    devices: safeParse<Record<string, Device>>(localStorage.getItem(DEVICES_KEY), {}),
-    states: normalizeStates(
-      safeParse<Record<string, Partial<DeviceState>>>(localStorage.getItem(STATES_KEY), {}),
-    ),
-  }
-}
-
 export const useDevicesStore = defineStore('devices', () => {
-  const initial = loadInitial()
-  const devices = ref<Record<string, Device>>(initial.devices)
-  const states = ref<Record<string, DeviceState>>(initial.states)
+  const devices = ref<Record<string, Device>>({})
+  const loading = ref(false)
+  const lastError = ref<string | null>(null)
 
   const deviceList = computed<Device[]>(() =>
     Object.values(devices.value).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
   )
 
+  const states = computed<Record<string, DeviceState>>(() => {
+    const out: Record<string, DeviceState> = {}
+    for (const [id, device] of Object.entries(devices.value)) {
+      out[id] = device.state
+    }
+    return out
+  })
+
   const hasDevice = (id: string) => Object.prototype.hasOwnProperty.call(devices.value, id)
-
   const getDevice = (id: string): Device | null => devices.value[id] ?? null
-
-  const getState = (id: string): DeviceState | null => states.value[id] ?? null
+  const getState = (id: string): DeviceState | null => devices.value[id]?.state ?? null
 
   const searchDevices = (query: string): Device[] => {
     const trimmed = query.trim().toLowerCase()
@@ -158,10 +44,7 @@ export const useDevicesStore = defineStore('devices', () => {
     )
   }
 
-  const validateRegistration = (
-    rawId: string,
-    rawLocation: string,
-  ): ValidationError[] => {
+  const validateRegistration = (rawId: string, rawLocation: string): ValidationError[] => {
     const errors: ValidationError[] = []
     const id = rawId.trim()
     const location = rawLocation.trim()
@@ -190,153 +73,149 @@ export const useDevicesStore = defineStore('devices', () => {
     return errors
   }
 
-  const applyAutoSchedule = (id: string, now: Date = new Date()) => {
-    const state = states.value[id]
-    if (!state || state.controlMode !== 'auto') return
-    const shouldBeOn = computeShouldBeOn(now, state.autoOnTime, state.autoOffTime)
-    if (state.isOn !== shouldBeOn) {
-      applyToggle(id, shouldBeOn, now.toISOString())
-    }
+  const upsertDevice = (device: Device) => {
+    devices.value = { ...devices.value, [device.id]: device }
   }
 
-  const applyToggle = (id: string, nextOn: boolean, timestamp: string) => {
-    const state = states.value[id]
-    if (!state) return
-    state.isOn = nextOn
-    state.lastUpdatedAt = timestamp
-    state.history = [{ isOn: nextOn, updatedAt: timestamp }, ...state.history].slice(0, HISTORY_LIMIT)
-    if (!nextOn) state.offTimerEndsAt = null
-  }
-
-  const processOffTimer = (id: string, now: Date) => {
-    const state = states.value[id]
-    if (!state || state.offTimerEndsAt === null) return
-    if (new Date(state.offTimerEndsAt).getTime() <= now.getTime()) {
-      if (state.isOn) {
-        applyToggle(id, false, now.toISOString())
-      } else {
-        state.offTimerEndsAt = null
-      }
-    }
-  }
-
-  const registerDevice = (rawId: string, rawLocation: string): { ok: true; id: string } | { ok: false; errors: ValidationError[] } => {
-    const errors = validateRegistration(rawId, rawLocation)
-    if (errors.length > 0) return { ok: false, errors }
-
-    const id = rawId.trim()
-    const location = rawLocation.trim()
-    const createdAt = new Date().toISOString()
-
-    devices.value = { ...devices.value, [id]: { id, location, createdAt } }
-    states.value = { ...states.value, [id]: createDefaultState() }
-    applyAutoSchedule(id)
-    return { ok: true, id }
-  }
-
-  const removeDevice = (id: string) => {
+  const removeFromState = (id: string) => {
     if (!hasDevice(id)) return
-    const nextDevices = { ...devices.value }
-    delete nextDevices[id]
-    devices.value = nextDevices
-
-    const nextStates = { ...states.value }
-    delete nextStates[id]
-    states.value = nextStates
+    const next = { ...devices.value }
+    delete next[id]
+    devices.value = next
   }
 
-  const toggleDevice = (id: string) => {
-    const state = states.value[id]
-    if (!state || state.controlMode === 'auto') return
-    applyToggle(id, !state.isOn, new Date().toISOString())
+  const refreshAll = async () => {
+    loading.value = true
+    try {
+      const list = await api.listDevices()
+      const map: Record<string, Device> = {}
+      for (const d of list) map[d.id] = d
+      devices.value = map
+      lastError.value = null
+    } catch (err) {
+      lastError.value = err instanceof Error ? err.message : 'unknown error'
+      throw err
+    } finally {
+      loading.value = false
+    }
   }
 
-  const setMode = (id: string, mode: ControlMode) => {
-    const state = states.value[id]
-    if (!state) return
-    state.controlMode = mode
-    if (mode === 'auto') state.offTimerEndsAt = null
-    applyAutoSchedule(id)
+  const refreshDevice = async (id: string) => {
+    try {
+      const device = await api.getDevice(id)
+      upsertDevice(device)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        removeFromState(id)
+        return
+      }
+      throw err
+    }
   }
 
-  const setAutoTimes = (id: string, onTime: string, offTime: string) => {
-    const state = states.value[id]
-    if (!state) return
-    state.autoOnTime = onTime
-    state.autoOffTime = offTime
-    applyAutoSchedule(id)
+  const registerDevice = async (
+    rawId: string,
+    rawLocation: string,
+  ): Promise<{ ok: true; id: string } | { ok: false; errors: ValidationError[] }> => {
+    const localErrors = validateRegistration(rawId, rawLocation)
+    if (localErrors.length > 0) return { ok: false, errors: localErrors }
+
+    try {
+      const device = await api.registerDevice({
+        id: rawId.trim(),
+        location: rawLocation.trim(),
+      })
+      upsertDevice(device)
+      return { ok: true, id: device.id }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const errors: ValidationError[] = []
+        if (err.fields && err.fields.length > 0) {
+          for (const f of err.fields) {
+            const field = f.field === 'id' || f.field === 'location' ? f.field : null
+            if (field) errors.push({ field, message: f.message })
+          }
+        } else if (err.code === 'conflict') {
+          errors.push({ field: 'id', message: err.message })
+        } else {
+          errors.push({ field: 'id', message: err.message })
+        }
+        return { ok: false, errors }
+      }
+      throw err
+    }
   }
 
-  const startOffTimer = (id: string, durationMs: number) => {
-    const state = states.value[id]
-    if (!state || !state.isOn || state.controlMode !== 'manual') return
-    state.offTimerEndsAt = new Date(Date.now() + durationMs).toISOString()
+  const removeDevice = async (id: string) => {
+    await api.deleteDevice(id)
+    removeFromState(id)
   }
 
-  const cancelOffTimer = (id: string) => {
-    const state = states.value[id]
-    if (!state) return
-    state.offTimerEndsAt = null
+  const toggleDevice = async (id: string) => {
+    const device = await api.toggleDevice(id)
+    upsertDevice(device)
   }
 
-  const tick = () => {
-    const now = new Date()
-    Object.keys(states.value).forEach((id) => {
-      processOffTimer(id, now)
-      applyAutoSchedule(id, now)
-    })
+  const setMode = async (id: string, mode: ControlMode) => {
+    const device = await api.setMode(id, mode)
+    upsertDevice(device)
   }
 
-  if (typeof window !== 'undefined') {
-    let lastDevicesJson = JSON.stringify(devices.value)
-    let lastStatesJson = JSON.stringify(states.value)
+  const setAutoTimes = async (id: string, autoOnTime: string, autoOffTime: string) => {
+    const device = await api.setAutoTimes(id, autoOnTime, autoOffTime)
+    upsertDevice(device)
+  }
 
-    watch(
-      devices,
-      (next) => {
-        const json = JSON.stringify(next)
-        if (json === lastDevicesJson) return
-        lastDevicesJson = json
-        localStorage.setItem(DEVICES_KEY, json)
-      },
-      { deep: true, flush: 'post' },
-    )
+  const startOffTimer = async (id: string, durationMs: number) => {
+    const device = await api.startOffTimer(id, durationMs)
+    upsertDevice(device)
+  }
 
-    watch(
-      states,
-      (next) => {
-        const json = JSON.stringify(next)
-        if (json === lastStatesJson) return
-        lastStatesJson = json
-        localStorage.setItem(STATES_KEY, json)
-      },
-      { deep: true, flush: 'post' },
-    )
+  const cancelOffTimer = async (id: string) => {
+    const device = await api.cancelOffTimer(id)
+    upsertDevice(device)
+  }
 
-    window.addEventListener('storage', (event) => {
-      if (event.key === DEVICES_KEY && event.newValue !== null) {
-        if (event.newValue === lastDevicesJson) return
-        const next = safeParse<Record<string, Device>>(event.newValue, devices.value)
-        lastDevicesJson = event.newValue
-        devices.value = next
-      } else if (event.key === STATES_KEY && event.newValue !== null) {
-        if (event.newValue === lastStatesJson) return
-        const next = safeParse<Record<string, DeviceState>>(event.newValue, states.value)
-        lastStatesJson = event.newValue
-        states.value = next
+  const fetchLogs = async (
+    id: string,
+    opts?: { limit?: number; before?: string },
+  ): Promise<{ items: DeviceLog[]; nextCursor: string | null }> => {
+    return api.getLogs(id, opts)
+  }
+
+  let unsubscribe: (() => void) | null = null
+
+  const subscribeEvents = () => {
+    if (unsubscribe) return
+    unsubscribe = api.subscribeToEvents((evt) => {
+      if (evt.type === 'device_updated') {
+        upsertDevice(evt.device)
+      } else if (evt.type === 'device_removed') {
+        removeFromState(evt.deviceId)
       }
     })
+  }
+
+  const unsubscribeEvents = () => {
+    if (unsubscribe) {
+      unsubscribe()
+      unsubscribe = null
+    }
   }
 
   return {
     devices,
     states,
     deviceList,
+    loading,
+    lastError,
     hasDevice,
     getDevice,
     getState,
     searchDevices,
     validateRegistration,
+    refreshAll,
+    refreshDevice,
     registerDevice,
     removeDevice,
     toggleDevice,
@@ -344,6 +223,8 @@ export const useDevicesStore = defineStore('devices', () => {
     setAutoTimes,
     startOffTimer,
     cancelOffTimer,
-    tick,
+    fetchLogs,
+    subscribeEvents,
+    unsubscribeEvents,
   }
 })

@@ -22,7 +22,7 @@ const formatThaiDateTime = (isoDate: string) =>
 const handleQuickToggle = (event: Event) => {
   event.preventDefault()
   event.stopPropagation()
-  store.toggleDevice(props.device.id)
+  store.toggleDevice(props.device.id).catch(() => {})
 }
 </script>
 

@@ -17,14 +17,22 @@ const locationError = computed(
   () => errors.value.find((e) => e.field === 'location')?.message ?? null,
 )
 
-const handleSubmit = () => {
+const submitting = ref(false)
+
+const handleSubmit = async () => {
   submitted.value = true
-  const result = store.registerDevice(deviceId.value, location.value)
-  if (!result.ok) {
-    errors.value = result.errors
-    return
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    const result = await store.registerDevice(deviceId.value, location.value)
+    if (!result.ok) {
+      errors.value = result.errors
+      return
+    }
+    router.push({ name: 'device-detail', params: { id: result.id } })
+  } finally {
+    submitting.value = false
   }
-  router.push({ name: 'device-detail', params: { id: result.id } })
 }
 
 const handleCancel = () => {
@@ -79,8 +87,12 @@ const handleCancel = () => {
         <button type="button" class="register-view__button register-view__button--ghost" @click="handleCancel">
           ยกเลิก
         </button>
-        <button type="submit" class="register-view__button register-view__button--primary">
-          ลงทะเบียน
+        <button
+          type="submit"
+          class="register-view__button register-view__button--primary"
+          :disabled="submitting"
+        >
+          {{ submitting ? 'กำลังบันทึก…' : 'ลงทะเบียน' }}
         </button>
       </div>
     </form>

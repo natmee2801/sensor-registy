@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
+import type { DeviceLog, LogType } from '@/types/device'
 import BulbVisual from '@/components/BulbVisual.vue'
 
 const props = defineProps<{ deviceId: string }>()
@@ -17,14 +18,14 @@ const autoOnTime = computed({
   get: () => state.value?.autoOnTime ?? '18:00',
   set: (value) => {
     if (!state.value) return
-    store.setAutoTimes(props.deviceId, value, state.value.autoOffTime)
+    store.setAutoTimes(props.deviceId, value, state.value.autoOffTime).catch(() => {})
   },
 })
 const autoOffTime = computed({
   get: () => state.value?.autoOffTime ?? '23:00',
   set: (value) => {
     if (!state.value) return
-    store.setAutoTimes(props.deviceId, state.value.autoOnTime, value)
+    store.setAutoTimes(props.deviceId, state.value.autoOnTime, value).catch(() => {})
   },
 })
 
@@ -52,10 +53,6 @@ watch(
       now.value = Date.now()
       nowInterval = setInterval(() => {
         now.value = Date.now()
-        const current = state.value?.offTimerEndsAt
-        if (current !== null && current !== undefined && new Date(current).getTime() <= now.value) {
-          store.tick()
-        }
       }, 1000)
     } else if (endsAt === null) {
       stopInterval()
@@ -82,11 +79,11 @@ const formatRemaining = (ms: number) => {
 }
 
 const handleStartTimer = (minutes: number) => {
-  store.startOffTimer(props.deviceId, minutes * 60 * 1000)
+  store.startOffTimer(props.deviceId, minutes * 60 * 1000).catch(() => {})
 }
 
 const handleCancelTimer = () => {
-  store.cancelOffTimer(props.deviceId)
+  store.cancelOffTimer(props.deviceId).catch(() => {})
 }
 
 const sameTimeWarning = computed(
@@ -96,7 +93,7 @@ const sameTimeWarning = computed(
 const handleModeChange = (event: Event) => {
   const value = (event.target as HTMLInputElement).value
   if (value === 'manual' || value === 'auto') {
-    store.setMode(props.deviceId, value)
+    store.setMode(props.deviceId, value).catch(() => {})
   }
 }
 
@@ -105,11 +102,58 @@ const formatThaiDateTime = (isoDate: string) =>
     new Date(isoDate),
   )
 
-const handleRemove = () => {
+const handleRemove = async () => {
   if (!window.confirm(`ลบอุปกรณ์ ${props.deviceId}?`)) return
-  store.removeDevice(props.deviceId)
-  emit('removed')
+  try {
+    await store.removeDevice(props.deviceId)
+    emit('removed')
+  } catch {
+    // store keeps device if delete fails; surface via lastError if needed
+  }
 }
+
+const logs = ref<DeviceLog[]>([])
+const logsCursor = ref<string | null>(null)
+const logsLoading = ref(false)
+
+const LOG_LABEL: Record<LogType, string> = {
+  toggle: 'สลับสถานะ',
+  mode_change: 'เปลี่ยนโหมด',
+  timer_set: 'ตั้งเวลาปิด',
+  timer_cancel: 'ยกเลิกตัวจับเวลา',
+  auto_on: 'อัตโนมัติเปิด',
+  auto_off: 'อัตโนมัติปิด',
+  timer_expired: 'ตัวจับเวลาหมด',
+}
+
+const isOnEvent = (type: LogType) =>
+  type === 'toggle' || type === 'auto_on' || type === 'auto_off' || type === 'timer_expired'
+
+const loadLogs = async (reset = false) => {
+  if (logsLoading.value) return
+  logsLoading.value = true
+  try {
+    const before = reset ? undefined : logsCursor.value ?? undefined
+    const res = await store.fetchLogs(props.deviceId, { limit: 20, before })
+    logs.value = reset ? res.items : [...logs.value, ...res.items]
+    logsCursor.value = res.nextCursor
+  } catch {
+    // ignore — empty state will be shown
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+onMounted(() => {
+  loadLogs(true)
+})
+
+watch(
+  () => state.value?.lastUpdatedAt,
+  (next, prev) => {
+    if (next !== prev && next !== undefined) loadLogs(true)
+  },
+)
 </script>
 
 <template>
@@ -249,22 +293,41 @@ const handleRemove = () => {
 
     <div class="light-history-card">
       <h2 class="card-title card-title--solo">ประวัติการเปลี่ยนสถานะ</h2>
-      <ul v-if="state.history.length > 0" class="history-list">
+      <ul v-if="logs.length > 0" class="history-list">
         <li
-          v-for="(item, index) in state.history"
-          :key="`${item.updatedAt}-${index}`"
+          v-for="log in logs"
+          :key="log._id"
           class="history-item"
         >
-          <span class="history-dot" :class="{ 'history-dot--on': item.isOn }" aria-hidden="true" />
+          <span
+            class="history-dot"
+            :class="{ 'history-dot--on': isOnEvent(log.type) && log.isOn === true }"
+            aria-hidden="true"
+          />
           <div class="history-main">
-            <span class="history-status" :class="{ 'history-status--on': item.isOn }">
-              {{ item.isOn ? 'เปิด' : 'ปิด' }}
+            <span
+              class="history-status"
+              :class="{ 'history-status--on': isOnEvent(log.type) && log.isOn === true }"
+            >
+              {{ LOG_LABEL[log.type] }}{{ log.isOn !== null ? ` · ${log.isOn ? 'เปิด' : 'ปิด'}` : '' }}
             </span>
-            <span class="history-time">{{ formatThaiDateTime(item.updatedAt) }}</span>
+            <span class="history-time">{{ formatThaiDateTime(log.createdAt) }}</span>
           </div>
         </li>
       </ul>
-      <p v-else class="history-empty">ยังไม่มีประวัติ — ลองสลับสถานะเพื่อดูรายการที่นี่</p>
+      <p v-else-if="!logsLoading" class="history-empty">
+        ยังไม่มีประวัติ — ลองสลับสถานะเพื่อดูรายการที่นี่
+      </p>
+      <p v-else class="history-empty">กำลังโหลด…</p>
+      <button
+        v-if="logsCursor"
+        type="button"
+        class="history-load-more"
+        :disabled="logsLoading"
+        @click="loadLogs(false)"
+      >
+        {{ logsLoading ? 'กำลังโหลด…' : 'โหลดเพิ่ม' }}
+      </button>
     </div>
 
     <button type="button" class="remove-button" @click="handleRemove">
@@ -651,6 +714,33 @@ const handleRemove = () => {
   color: var(--muted);
   font-size: 0.88rem;
   line-height: 1.5;
+}
+
+.history-load-more {
+  margin-top: 0.75rem;
+  width: 100%;
+  padding: 0.55rem 0.95rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.55);
+  color: rgba(226, 232, 240, 0.92);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.history-load-more:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.history-load-more:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .remove-button {

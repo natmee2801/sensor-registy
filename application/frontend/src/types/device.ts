@@ -1,14 +1,3 @@
-export interface Device {
-  id: string
-  location: string
-  createdAt: string
-}
-
-export interface HistoryEntry {
-  isOn: boolean
-  updatedAt: string
-}
-
 export type ControlMode = 'manual' | 'auto'
 
 export interface DeviceState {
@@ -17,8 +6,33 @@ export interface DeviceState {
   controlMode: ControlMode
   autoOnTime: string
   autoOffTime: string
-  history: HistoryEntry[]
   offTimerEndsAt: string | null
+}
+
+export interface Device {
+  id: string
+  location: string
+  createdAt: string
+  state: DeviceState
+}
+
+export type LogType =
+  | 'toggle'
+  | 'mode_change'
+  | 'timer_set'
+  | 'timer_cancel'
+  | 'auto_on'
+  | 'auto_off'
+  | 'timer_expired'
+
+export interface DeviceLog {
+  _id: string
+  deviceId: string
+  type: LogType
+  isOn: boolean | null
+  controlMode: ControlMode | null
+  meta: unknown
+  createdAt: string
 }
 
 export const createDefaultState = (): DeviceState => ({
@@ -27,6 +41,5 @@ export const createDefaultState = (): DeviceState => ({
   controlMode: 'manual',
   autoOnTime: '18:00',
   autoOffTime: '23:00',
-  history: [],
   offTimerEndsAt: null,
 })
