@@ -1,42 +1,43 @@
-# sensor-registy
+# sensor-registry
 
-This template should help get you started developing with Vue 3 in Vite.
+ระบบควบคุมหลอดไฟ (สถานะปัจจุบัน: simulation — ยังไม่เชื่อมกับ hardware จริง)
 
-## Recommended IDE Setup
+```
+sensor-registy/
+├── application/
+│   ├── frontend/        Vue 3 + Vite + Pinia (TypeScript)
+│   └── backend/         Express + Mongoose + MongoDB (TypeScript)
+├── microcontroller/     placeholder สำหรับ firmware ภายหลัง (ESP/Arduino)
+├── docker-compose.yml   MongoDB 7 สำหรับ dev
+└── ...
+```
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## เริ่มต้นใช้งาน
 
-## Recommended Browser Setup
-
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
-
-## Type Support for `.vue` Imports in TS
-
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
+ต้องมี: Node.js 22+, npm, Docker (สำหรับ MongoDB)
 
 ```sh
+# 1. เริ่ม MongoDB
+docker compose up -d
+
+# 2. backend (terminal ที่ 1)
+cd application/backend
+cp .env.example .env
 npm install
-```
-
-### Compile and Hot-Reload for Development
-
-```sh
 npm run dev
+# → http://localhost:3000
+
+# 3. frontend (terminal ที่ 2)
+cd application/frontend
+npm install
+npm run dev
+# → http://localhost:5173
 ```
 
-### Type-Check, Compile and Minify for Production
+หน้าเว็บเปิดที่ `http://localhost:5173` — สมัคร device ใหม่ได้ที่ `/register`
 
-```sh
-npm run build
-```
+## โครงการย่อย
+
+- [`application/frontend/`](./application/frontend) — UI: register / list / control / history
+- [`application/backend/`](./application/backend) — REST API + SSE live updates + log archive job
+- [`microcontroller/`](./microcontroller) — firmware (ยังว่างอยู่)
