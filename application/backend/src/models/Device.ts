@@ -27,10 +27,6 @@ const deviceSchema = new Schema(
   { versionKey: false, minimize: false },
 )
 
-deviceSchema.index(
-  { _id: 1 },
-  { collation: { locale: 'en', strength: 2 }, unique: true, name: 'id_ci_unique' },
-)
 deviceSchema.index({ 'state.controlMode': 1 })
 deviceSchema.index({ 'state.offTimerEndsAt': 1 }, { sparse: true })
 
