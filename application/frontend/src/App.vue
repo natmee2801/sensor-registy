@@ -33,15 +33,10 @@ onUnmounted(() => {
 .page {
   position: relative;
   isolation: isolate;
-  min-height: 100vh;
   padding: clamp(1rem, 4vw, 2.5rem);
   font-family: var(--font);
   color: var(--text);
-  background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(56, 189, 248, 0.12), transparent 55%),
-    radial-gradient(900px 500px at 110% 10%, rgba(167, 139, 250, 0.14), transparent 50%),
-    linear-gradient(180deg, #0c1222 0%, #060912 45%, #04060c 100%);
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 .page__shell {
@@ -51,7 +46,7 @@ onUnmounted(() => {
 }
 
 .page__glow {
-  position: absolute;
+  position: fixed;
   width: min(42rem, 90vw);
   height: min(42rem, 90vw);
   border-radius: 50%;
@@ -62,19 +57,19 @@ onUnmounted(() => {
 }
 
 .page__glow--1 {
-  top: -18%;
-  left: -12%;
+  top: -10vh;
+  left: -10vw;
   background: rgba(56, 189, 248, 0.35);
 }
 
 .page__glow--2 {
-  bottom: -25%;
-  right: -18%;
+  bottom: -15vh;
+  right: -12vw;
   background: rgba(167, 139, 250, 0.32);
 }
 
 .page__grid {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: -1;
   opacity: 0.22;
