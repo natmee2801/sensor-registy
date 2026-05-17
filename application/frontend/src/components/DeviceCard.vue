@@ -12,6 +12,7 @@ const { states } = storeToRefs(store)
 
 const state = computed(() => states.value[props.device.id])
 const isOn = computed(() => state.value?.isOn ?? false)
+const isOnline = computed(() => state.value?.isOnline ?? false)
 const controlMode = computed(() => state.value?.controlMode ?? 'manual')
 
 const formatThaiDateTime = (isoDate: string) =>
@@ -34,7 +35,14 @@ const handleQuickToggle = (event: Event) => {
   >
     <div class="device-card__head">
       <div class="device-card__identity">
-        <span class="device-card__id">{{ device.id }}</span>
+        <div class="device-card__id-row">
+          <span
+            class="device-card__dot"
+            :class="{ 'device-card__dot--online': isOnline }"
+            :title="isOnline ? 'online' : 'offline'"
+          />
+          <span class="device-card__id">{{ device.id }}</span>
+        </div>
         <span class="device-card__location">{{ device.location }}</span>
       </div>
       <span class="device-card__badge" :class="{ 'device-card__badge--on': isOn }">
@@ -124,6 +132,26 @@ const handleQuickToggle = (event: Event) => {
   flex-direction: column;
   gap: 0.2rem;
   min-width: 0;
+}
+
+.device-card__id-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.device-card__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.5);
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.12);
+  flex-shrink: 0;
+}
+
+.device-card__dot--online {
+  background: #4ade80;
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.2);
 }
 
 .device-card__id {

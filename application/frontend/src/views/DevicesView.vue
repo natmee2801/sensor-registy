@@ -1,16 +1,40 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { RouterLink } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
 import DeviceCard from '@/components/DeviceCard.vue'
+import PairingCard from '@/components/PairingCard.vue'
+import ClaimDeviceModal from '@/components/ClaimDeviceModal.vue'
+import type { PairingSession } from '@/types/device'
 
 const store = useDevicesStore()
-const { deviceList } = storeToRefs(store)
+const { deviceList, unclaimedList } = storeToRefs(store)
+
+const tab = ref<'devices' | 'pairing'>('devices')
 
 const query = ref('')
 const filtered = computed(() => store.searchDevices(query.value))
 const totalCount = computed(() => deviceList.value.length)
+
+const STALE_HIDE_MS = 5 * 60 * 1000
+const nowTick = ref(Date.now())
+setInterval(() => {
+  nowTick.value = Date.now()
+}, 10_000)
+const visibleUnclaimed = computed(() =>
+  unclaimedList.value.filter(
+    (s) => nowTick.value - new Date(s.lastSeenAt).getTime() < STALE_HIDE_MS,
+  ),
+)
+const pairingCount = computed(() => visibleUnclaimed.value.length)
+
+const selectedSession = ref<PairingSession | null>(null)
+const openClaim = (session: PairingSession) => {
+  selectedSession.value = session
+}
+const closeClaim = () => {
+  selectedSession.value = null
+}
 </script>
 
 <template>
@@ -20,44 +44,87 @@ const totalCount = computed(() => deviceList.value.length)
         <p class="devices-view__eyebrow">Smart lighting</p>
         <h1 class="devices-view__title">อุปกรณ์ทั้งหมด</h1>
         <p class="devices-view__subtitle">
-          ลงทะเบียน device_id เพื่อควบคุมหลอดไฟแยกตามอุปกรณ์
+          เปิดอุปกรณ์ใหม่ให้ประกาศตัวผ่าน MQTT แล้ว claim จากแท็บ Pairing
         </p>
       </div>
-      <RouterLink to="/register" class="devices-view__cta">+ ลงทะเบียนอุปกรณ์</RouterLink>
     </header>
 
-    <div class="devices-view__search">
-      <span class="devices-view__search-icon" aria-hidden="true">⌕</span>
-      <input
-        v-model="query"
-        class="devices-view__search-input"
-        type="search"
-        placeholder="ค้นหาด้วย device_id หรือตำแหน่ง"
-        autocomplete="off"
-      />
-      <span v-if="query" class="devices-view__search-count">
-        {{ filtered.length }} / {{ totalCount }}
-      </span>
+    <div class="devices-view__tabs" role="tablist">
+      <button
+        type="button"
+        class="devices-view__tab"
+        :class="{ 'devices-view__tab--active': tab === 'devices' }"
+        role="tab"
+        :aria-selected="tab === 'devices'"
+        @click="tab = 'devices'"
+      >
+        Devices <span class="devices-view__tab-count">({{ totalCount }})</span>
+      </button>
+      <button
+        type="button"
+        class="devices-view__tab"
+        :class="{
+          'devices-view__tab--active': tab === 'pairing',
+          'devices-view__tab--pulse': pairingCount > 0 && tab !== 'pairing',
+        }"
+        role="tab"
+        :aria-selected="tab === 'pairing'"
+        @click="tab = 'pairing'"
+      >
+        Pairing <span class="devices-view__tab-count">({{ pairingCount }})</span>
+      </button>
     </div>
 
-    <div v-if="totalCount === 0" class="devices-view__empty">
-      <p class="devices-view__empty-title">ยังไม่มีอุปกรณ์</p>
-      <p class="devices-view__empty-body">
-        เริ่มต้นด้วยการลงทะเบียนอุปกรณ์ตัวแรก แล้วคุณจะสามารถเปิด–ปิดไฟได้จากหน้านี้
-      </p>
-      <RouterLink to="/register" class="devices-view__cta devices-view__cta--block">
-        ลงทะเบียนอุปกรณ์ใหม่
-      </RouterLink>
-    </div>
+    <template v-if="tab === 'devices'">
+      <div class="devices-view__search">
+        <span class="devices-view__search-icon" aria-hidden="true">⌕</span>
+        <input
+          v-model="query"
+          class="devices-view__search-input"
+          type="search"
+          placeholder="ค้นหาด้วย device_id หรือตำแหน่ง"
+          autocomplete="off"
+        />
+        <span v-if="query" class="devices-view__search-count">
+          {{ filtered.length }} / {{ totalCount }}
+        </span>
+      </div>
 
-    <div v-else-if="filtered.length === 0" class="devices-view__empty">
-      <p class="devices-view__empty-title">ไม่พบอุปกรณ์ที่ตรงกับคำค้น</p>
-      <p class="devices-view__empty-body">ลองค้นด้วย device_id หรือชื่อห้องอื่น</p>
-    </div>
+      <div v-if="totalCount === 0" class="devices-view__empty">
+        <p class="devices-view__empty-title">ยังไม่มีอุปกรณ์</p>
+        <p class="devices-view__empty-body">
+          เปิดสวิตช์อุปกรณ์ตัวแรก แล้วไปที่แท็บ Pairing เพื่อ claim
+        </p>
+      </div>
 
-    <div v-else class="devices-view__grid">
-      <DeviceCard v-for="device in filtered" :key="device.id" :device="device" />
-    </div>
+      <div v-else-if="filtered.length === 0" class="devices-view__empty">
+        <p class="devices-view__empty-title">ไม่พบอุปกรณ์ที่ตรงกับคำค้น</p>
+        <p class="devices-view__empty-body">ลองค้นด้วย device_id หรือชื่อห้องอื่น</p>
+      </div>
+
+      <div v-else class="devices-view__grid">
+        <DeviceCard v-for="device in filtered" :key="device.id" :device="device" />
+      </div>
+    </template>
+
+    <template v-else>
+      <div v-if="pairingCount === 0" class="devices-view__empty">
+        <p class="devices-view__empty-title">ยังไม่มีอุปกรณ์รอ pair</p>
+        <p class="devices-view__empty-body">
+          เสียบไฟอุปกรณ์ตัวใหม่ — ภายในไม่กี่วินาทีจะปรากฏที่นี่
+        </p>
+      </div>
+      <div v-else class="devices-view__grid">
+        <PairingCard
+          v-for="session in visibleUnclaimed"
+          :key="session.mac"
+          :session="session"
+          @claim="openClaim"
+        />
+      </div>
+    </template>
+
+    <ClaimDeviceModal :session="selectedSession" @close="closeClaim" />
   </section>
 </template>
 
@@ -103,28 +170,51 @@ const totalCount = computed(() => deviceList.value.length)
   line-height: 1.55;
 }
 
-.devices-view__cta {
-  padding: 0.65rem 1.05rem;
+.devices-view__tabs {
+  display: inline-flex;
+  gap: 0.3rem;
+  padding: 0.3rem;
   border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  width: fit-content;
+}
+
+.devices-view__tab {
+  padding: 0.5rem 1.1rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(203, 213, 225, 0.85);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.devices-view__tab:hover {
+  color: var(--text);
+}
+
+.devices-view__tab--active {
   background: linear-gradient(100deg, var(--accent) 0%, var(--accent-2) 100%);
   color: #0b1326;
-  font-size: 0.86rem;
-  font-weight: 700;
-  text-decoration: none;
-  box-shadow: 0 12px 32px rgba(56, 189, 248, 0.32);
-  transition:
-    transform 0.18s ease,
-    filter 0.18s ease;
 }
 
-.devices-view__cta:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.05);
+.devices-view__tab--pulse {
+  animation: pulse 1.6s ease-in-out infinite;
 }
 
-.devices-view__cta--block {
-  margin-top: 0.9rem;
-  display: inline-block;
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+  50% { box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.15); }
+}
+
+.devices-view__tab-count {
+  font-size: 0.75rem;
+  opacity: 0.85;
+  margin-left: 0.15rem;
 }
 
 .devices-view__search {

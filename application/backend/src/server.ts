@@ -4,9 +4,13 @@ import { logger } from './lib/logger.ts'
 import { buildApp } from './app.ts'
 import { startTickJob } from './jobs/tickJob.ts'
 import { startArchiveJob } from './jobs/archiveJob.ts'
+import { connect as connectMqtt, disconnect as disconnectMqtt } from './services/mqtt.ts'
 
 const main = async () => {
   await connectDb()
+  await connectMqtt().catch((err) => {
+    logger.error({ err }, 'mqtt initial connect failed; will retry in background')
+  })
 
   const app = buildApp()
   const server = app.listen(env.PORT, () => {
@@ -18,6 +22,7 @@ const main = async () => {
 
   const shutdown = (signal: string) => {
     logger.info({ signal }, 'shutting down')
+    disconnectMqtt().catch(() => {})
     server.close(() => {
       process.exit(0)
     })

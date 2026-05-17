@@ -9,13 +9,11 @@ import {
   logsQuerySchema,
   modeBodySchema,
   offTimerBodySchema,
-  registerBodySchema,
 } from '../schemas/device.zod.ts'
 
 export const devicesRouter = Router()
 
 devicesRouter.get('/', validate(listQuerySchema, 'query'), controller.list)
-devicesRouter.post('/', validate(registerBodySchema, 'body'), controller.create)
 devicesRouter.get('/:id', validate(idParamSchema, 'params'), controller.getOne)
 devicesRouter.delete('/:id', validate(idParamSchema, 'params'), controller.remove)
 devicesRouter.post(

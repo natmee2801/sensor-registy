@@ -3,6 +3,7 @@ import type {
   Device,
   DeviceLog,
   DeviceState,
+  PairingSession,
 } from '@/types/device'
 
 const BASE_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
@@ -36,7 +37,19 @@ interface RawDevice {
     autoOnTime: string
     autoOffTime: string
     offTimerEndsAt: string | null
+    isOnline?: boolean
+    lastSeenAt?: string | null
+    mac?: string | null
   }
+}
+
+interface RawPairingSession {
+  mac: string
+  proposedId: string
+  model: string | null
+  fw: string | null
+  firstSeenAt: string
+  lastSeenAt: string
 }
 
 const normalizeDevice = (raw: RawDevice): Device => ({
@@ -50,6 +63,9 @@ const normalizeDevice = (raw: RawDevice): Device => ({
     autoOnTime: raw.state.autoOnTime,
     autoOffTime: raw.state.autoOffTime,
     offTimerEndsAt: raw.state.offTimerEndsAt,
+    isOnline: raw.state.isOnline ?? false,
+    lastSeenAt: raw.state.lastSeenAt ?? null,
+    mac: raw.state.mac ?? null,
   } satisfies DeviceState,
 })
 
@@ -100,16 +116,20 @@ export const getDevice = async (id: string): Promise<Device> => {
   return normalizeDevice(raw)
 }
 
-export const registerDevice = async (input: {
-  id: string
-  location: string
-}): Promise<Device> => {
-  const raw = await request<RawDevice>('POST', '/api/devices', input)
-  return normalizeDevice(raw)
-}
-
 export const deleteDevice = (id: string): Promise<void> =>
   request<void>('DELETE', `/api/devices/${encodeURIComponent(id)}`)
+
+export const listUnclaimed = async (): Promise<PairingSession[]> => {
+  return request<RawPairingSession[]>('GET', '/api/pairing/unclaimed')
+}
+
+export const claimDevice = async (input: {
+  mac: string
+  location: string
+}): Promise<Device> => {
+  const raw = await request<RawDevice>('POST', '/api/pairing/claim', input)
+  return normalizeDevice(raw)
+}
 
 export const toggleDevice = async (id: string): Promise<Device> => {
   const raw = await request<RawDevice>('POST', `/api/devices/${encodeURIComponent(id)}/toggle`)
@@ -169,19 +189,11 @@ export const getLogs = async (
   )
 }
 
-export interface DeviceUpdatedEvent {
-  type: 'device_updated'
-  device: RawDevice
-}
-
-export interface DeviceRemovedEvent {
-  type: 'device_removed'
-  deviceId: string
-}
-
 export type AppEvent =
   | { type: 'device_updated'; device: Device }
   | { type: 'device_removed'; deviceId: string }
+  | { type: 'pair_announced'; session: PairingSession }
+  | { type: 'pair_claimed'; mac: string }
 
 export const subscribeToEvents = (
   onEvent: (evt: AppEvent) => void,
@@ -191,7 +203,7 @@ export const subscribeToEvents = (
 
   const handleUpdated = (e: MessageEvent) => {
     try {
-      const raw = JSON.parse(e.data) as DeviceUpdatedEvent
+      const raw = JSON.parse(e.data) as { type: 'device_updated'; device: RawDevice }
       onEvent({ type: 'device_updated', device: normalizeDevice(raw.device) })
     } catch {
       // ignore malformed
@@ -199,8 +211,24 @@ export const subscribeToEvents = (
   }
   const handleRemoved = (e: MessageEvent) => {
     try {
-      const raw = JSON.parse(e.data) as DeviceRemovedEvent
+      const raw = JSON.parse(e.data) as { type: 'device_removed'; deviceId: string }
       onEvent({ type: 'device_removed', deviceId: raw.deviceId })
+    } catch {
+      // ignore malformed
+    }
+  }
+  const handlePairAnnounced = (e: MessageEvent) => {
+    try {
+      const raw = JSON.parse(e.data) as { type: 'pair_announced'; session: RawPairingSession }
+      onEvent({ type: 'pair_announced', session: raw.session })
+    } catch {
+      // ignore malformed
+    }
+  }
+  const handlePairClaimed = (e: MessageEvent) => {
+    try {
+      const raw = JSON.parse(e.data) as { type: 'pair_claimed'; mac: string }
+      onEvent({ type: 'pair_claimed', mac: raw.mac })
     } catch {
       // ignore malformed
     }
@@ -208,11 +236,15 @@ export const subscribeToEvents = (
 
   source.addEventListener('device_updated', handleUpdated)
   source.addEventListener('device_removed', handleRemoved)
+  source.addEventListener('pair_announced', handlePairAnnounced)
+  source.addEventListener('pair_claimed', handlePairClaimed)
   if (onError) source.addEventListener('error', onError)
 
   return () => {
     source.removeEventListener('device_updated', handleUpdated)
     source.removeEventListener('device_removed', handleRemoved)
+    source.removeEventListener('pair_announced', handlePairAnnounced)
+    source.removeEventListener('pair_claimed', handlePairClaimed)
     if (onError) source.removeEventListener('error', onError)
     source.close()
   }

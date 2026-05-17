@@ -8,5 +8,19 @@ services:
     volumes:
       - mongo-data:/data/db
 
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: sensor-registry-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+
 volumes:
   mongo-data:
+  mosquitto-data:
+  mosquitto-log:

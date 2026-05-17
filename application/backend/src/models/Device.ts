@@ -4,6 +4,7 @@ import { HHMM_PATTERN } from '../lib/time.ts'
 export const ID_PATTERN = /^[A-Za-z0-9_-]+$/
 export const ID_MAX = 64
 export const LOCATION_MAX = 80
+export const MAC_PATTERN = /^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$/
 
 const deviceStateSchema = new Schema(
   {
@@ -13,6 +14,9 @@ const deviceStateSchema = new Schema(
     autoOnTime: { type: String, match: HHMM_PATTERN, default: '18:00' },
     autoOffTime: { type: String, match: HHMM_PATTERN, default: '23:00' },
     offTimerEndsAt: { type: Date, default: null },
+    isOnline: { type: Boolean, default: false },
+    lastSeenAt: { type: Date, default: null },
+    mac: { type: String, default: null },
   },
   { _id: false },
 )
@@ -29,6 +33,7 @@ const deviceSchema = new Schema(
 
 deviceSchema.index({ 'state.controlMode': 1 })
 deviceSchema.index({ 'state.offTimerEndsAt': 1 }, { sparse: true })
+deviceSchema.index({ 'state.mac': 1 }, { sparse: true })
 
 export type DeviceDoc = InferSchemaType<typeof deviceSchema>
 

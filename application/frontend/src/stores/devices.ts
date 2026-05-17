@@ -2,24 +2,33 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import * as api from '@/services/api'
 import { ApiError } from '@/services/api'
-import type { ControlMode, Device, DeviceLog, DeviceState } from '@/types/device'
+import type {
+  ControlMode,
+  Device,
+  DeviceLog,
+  DeviceState,
+  PairingSession,
+} from '@/types/device'
 
-const ID_MAX = 64
 const LOCATION_MAX = 80
-const ID_PATTERN = /^[A-Za-z0-9_-]+$/
 
 export interface ValidationError {
-  field: 'id' | 'location'
+  field: 'location' | 'mac'
   message: string
 }
 
 export const useDevicesStore = defineStore('devices', () => {
   const devices = ref<Record<string, Device>>({})
+  const unclaimed = ref<Record<string, PairingSession>>({})
   const loading = ref(false)
   const lastError = ref<string | null>(null)
 
   const deviceList = computed<Device[]>(() =>
     Object.values(devices.value).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+  )
+
+  const unclaimedList = computed<PairingSession[]>(() =>
+    Object.values(unclaimed.value).sort((a, b) => a.firstSeenAt.localeCompare(b.firstSeenAt)),
   )
 
   const states = computed<Record<string, DeviceState>>(() => {
@@ -44,35 +53,6 @@ export const useDevicesStore = defineStore('devices', () => {
     )
   }
 
-  const validateRegistration = (rawId: string, rawLocation: string): ValidationError[] => {
-    const errors: ValidationError[] = []
-    const id = rawId.trim()
-    const location = rawLocation.trim()
-
-    if (!id) {
-      errors.push({ field: 'id', message: 'กรุณากรอก device_id' })
-    } else if (id.length > ID_MAX) {
-      errors.push({ field: 'id', message: `device_id ต้องไม่เกิน ${ID_MAX} ตัวอักษร` })
-    } else if (!ID_PATTERN.test(id)) {
-      errors.push({
-        field: 'id',
-        message: 'device_id ใช้ได้เฉพาะ A-Z, a-z, 0-9, "-", "_"',
-      })
-    } else if (
-      Object.keys(devices.value).some((existing) => existing.toLowerCase() === id.toLowerCase())
-    ) {
-      errors.push({ field: 'id', message: 'มี device_id นี้อยู่แล้ว' })
-    }
-
-    if (!location) {
-      errors.push({ field: 'location', message: 'กรุณากรอกตำแหน่ง/ห้อง' })
-    } else if (location.length > LOCATION_MAX) {
-      errors.push({ field: 'location', message: `ตำแหน่งต้องไม่เกิน ${LOCATION_MAX} ตัวอักษร` })
-    }
-
-    return errors
-  }
-
   const upsertDevice = (device: Device) => {
     devices.value = { ...devices.value, [device.id]: device }
   }
@@ -84,13 +64,27 @@ export const useDevicesStore = defineStore('devices', () => {
     devices.value = next
   }
 
+  const upsertUnclaimed = (session: PairingSession) => {
+    unclaimed.value = { ...unclaimed.value, [session.mac]: session }
+  }
+
+  const removeUnclaimed = (mac: string) => {
+    if (!Object.prototype.hasOwnProperty.call(unclaimed.value, mac)) return
+    const next = { ...unclaimed.value }
+    delete next[mac]
+    unclaimed.value = next
+  }
+
   const refreshAll = async () => {
     loading.value = true
     try {
-      const list = await api.listDevices()
+      const [list, pairings] = await Promise.all([api.listDevices(), api.listUnclaimed()])
       const map: Record<string, Device> = {}
       for (const d of list) map[d.id] = d
       devices.value = map
+      const pmap: Record<string, PairingSession> = {}
+      for (const p of pairings) pmap[p.mac] = p
+      unclaimed.value = pmap
       lastError.value = null
     } catch (err) {
       lastError.value = err instanceof Error ? err.message : 'unknown error'
@@ -98,6 +92,13 @@ export const useDevicesStore = defineStore('devices', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  const fetchUnclaimed = async () => {
+    const list = await api.listUnclaimed()
+    const map: Record<string, PairingSession> = {}
+    for (const p of list) map[p.mac] = p
+    unclaimed.value = map
   }
 
   const refreshDevice = async (id: string) => {
@@ -113,32 +114,34 @@ export const useDevicesStore = defineStore('devices', () => {
     }
   }
 
-  const registerDevice = async (
-    rawId: string,
+  const claimDevice = async (
+    mac: string,
     rawLocation: string,
   ): Promise<{ ok: true; id: string } | { ok: false; errors: ValidationError[] }> => {
-    const localErrors = validateRegistration(rawId, rawLocation)
+    const location = rawLocation.trim()
+    const localErrors: ValidationError[] = []
+    if (!location) {
+      localErrors.push({ field: 'location', message: 'กรุณากรอกตำแหน่ง/ห้อง' })
+    } else if (location.length > LOCATION_MAX) {
+      localErrors.push({ field: 'location', message: `ตำแหน่งต้องไม่เกิน ${LOCATION_MAX} ตัวอักษร` })
+    }
     if (localErrors.length > 0) return { ok: false, errors: localErrors }
 
     try {
-      const device = await api.registerDevice({
-        id: rawId.trim(),
-        location: rawLocation.trim(),
-      })
+      const device = await api.claimDevice({ mac, location })
       upsertDevice(device)
+      removeUnclaimed(mac)
       return { ok: true, id: device.id }
     } catch (err) {
       if (err instanceof ApiError) {
         const errors: ValidationError[] = []
         if (err.fields && err.fields.length > 0) {
           for (const f of err.fields) {
-            const field = f.field === 'id' || f.field === 'location' ? f.field : null
-            if (field) errors.push({ field, message: f.message })
+            const field = f.field === 'location' || f.field === 'mac' ? f.field : 'location'
+            errors.push({ field, message: f.message })
           }
-        } else if (err.code === 'conflict') {
-          errors.push({ field: 'id', message: err.message })
         } else {
-          errors.push({ field: 'id', message: err.message })
+          errors.push({ field: 'location', message: err.message })
         }
         return { ok: false, errors }
       }
@@ -192,6 +195,10 @@ export const useDevicesStore = defineStore('devices', () => {
         upsertDevice(evt.device)
       } else if (evt.type === 'device_removed') {
         removeFromState(evt.deviceId)
+      } else if (evt.type === 'pair_announced') {
+        upsertUnclaimed(evt.session)
+      } else if (evt.type === 'pair_claimed') {
+        removeUnclaimed(evt.mac)
       }
     })
   }
@@ -205,18 +212,20 @@ export const useDevicesStore = defineStore('devices', () => {
 
   return {
     devices,
+    unclaimed,
     states,
     deviceList,
+    unclaimedList,
     loading,
     lastError,
     hasDevice,
     getDevice,
     getState,
     searchDevices,
-    validateRegistration,
     refreshAll,
     refreshDevice,
-    registerDevice,
+    fetchUnclaimed,
+    claimDevice,
     removeDevice,
     toggleDevice,
     setMode,

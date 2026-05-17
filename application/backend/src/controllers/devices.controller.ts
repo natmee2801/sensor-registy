@@ -11,16 +11,6 @@ export const list: RequestHandler = async (req, res, next) => {
   }
 }
 
-export const create: RequestHandler = async (req, res, next) => {
-  try {
-    const { id, location } = req.body as { id: string; location: string }
-    const device = await service.registerDevice(id, location)
-    res.status(201).json(device)
-  } catch (err) {
-    next(err)
-  }
-}
-
 export const getOne: RequestHandler = async (req, res, next) => {
   try {
     const device = await service.getDevice(req.params.id as string)

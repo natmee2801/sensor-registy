@@ -7,6 +7,9 @@ export interface DeviceState {
   autoOnTime: string
   autoOffTime: string
   offTimerEndsAt: string | null
+  isOnline: boolean
+  lastSeenAt: string | null
+  mac: string | null
 }
 
 export interface Device {
@@ -24,6 +27,20 @@ export type LogType =
   | 'auto_on'
   | 'auto_off'
   | 'timer_expired'
+  | 'cmd_ack'
+  | 'cmd_timeout'
+  | 'device_online'
+  | 'device_offline'
+  | 'paired'
+
+export interface PairingSession {
+  mac: string
+  proposedId: string
+  model: string | null
+  fw: string | null
+  firstSeenAt: string
+  lastSeenAt: string
+}
 
 export interface DeviceLog {
   _id: string
@@ -42,4 +59,7 @@ export const createDefaultState = (): DeviceState => ({
   autoOnTime: '18:00',
   autoOffTime: '23:00',
   offTimerEndsAt: null,
+  isOnline: false,
+  lastSeenAt: null,
+  mac: null,
 })

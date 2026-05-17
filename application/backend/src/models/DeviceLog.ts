@@ -8,6 +8,11 @@ export const LOG_TYPES = [
   'auto_on',
   'auto_off',
   'timer_expired',
+  'cmd_ack',
+  'cmd_timeout',
+  'device_online',
+  'device_offline',
+  'paired',
 ] as const
 
 export type LogType = (typeof LOG_TYPES)[number]

@@ -2,6 +2,8 @@ import { Device } from '../models/Device.ts'
 import { DeviceLog, type LogType } from '../models/DeviceLog.ts'
 import { computeShouldBeOn } from '../lib/time.ts'
 import { appBus } from './events.ts'
+import * as mqtt from './mqtt.ts'
+import { logger } from '../lib/logger.ts'
 
 export class NotFoundError extends Error {
   constructor(message = 'ไม่พบรายการที่ต้องการ') {
@@ -51,26 +53,6 @@ export const getDevice = async (id: string) => {
   const doc = await Device.findById(id).lean()
   if (!doc) throw new NotFoundError(`ไม่พบ device "${id}"`)
   return doc
-}
-
-export const registerDevice = async (id: string, location: string) => {
-  const existing = await Device.findOne({ _id: id })
-    .collation({ locale: 'en', strength: 2 })
-    .lean()
-  if (existing) throw new ConflictError('มี device_id นี้อยู่แล้ว')
-
-  try {
-    const created = await Device.create({ _id: id, location })
-    const obj = created.toObject()
-    applyAutoScheduleIfNeeded(id).catch(() => {})
-    appBus.emitDeviceUpdated(obj)
-    return obj
-  } catch (err) {
-    if ((err as { code?: number }).code === 11000) {
-      throw new ConflictError('มี device_id นี้อยู่แล้ว')
-    }
-    throw err
-  }
 }
 
 export const removeDevice = async (id: string) => {
@@ -157,6 +139,53 @@ const applyToggle = async (id: string, nextOn: boolean, logType: LogType) => {
   await doc.save()
   await writeLog(id, logType, { isOn: nextOn })
   const fresh = await Device.findById(id).lean()
+  if (fresh) appBus.emitDeviceUpdated(fresh)
+  mqtt.publishCommand(id, nextOn).catch((err) => {
+    logger.warn({ err, deviceId: id }, 'mqtt publishCommand failed')
+  })
+}
+
+export const handleAck = async (
+  deviceId: string,
+  payload: { cmdId: string; status: 'applied' | 'error'; isOn?: boolean },
+) => {
+  await writeLog(deviceId, 'cmd_ack', {
+    isOn: payload.isOn ?? null,
+    meta: { cmdId: payload.cmdId, status: payload.status },
+  })
+}
+
+export const handleCmdTimeout = async (deviceId: string, cmdId: string) => {
+  await writeLog(deviceId, 'cmd_timeout', { meta: { cmdId } })
+}
+
+export const handleHeartbeat = async (
+  deviceId: string,
+  payload: { isOn?: boolean; rssi?: number; uptime?: number },
+) => {
+  const doc = await Device.findById(deviceId)
+  if (!doc) return
+  const wasOnline = doc.state.isOnline
+  doc.state.isOnline = true
+  doc.state.lastSeenAt = new Date()
+  await doc.save()
+  if (!wasOnline) {
+    await writeLog(deviceId, 'device_online', {
+      isOn: payload.isOn ?? null,
+      meta: { rssi: payload.rssi ?? null, uptime: payload.uptime ?? null },
+    })
+  }
+  const fresh = await Device.findById(deviceId).lean()
+  if (fresh) appBus.emitDeviceUpdated(fresh)
+}
+
+export const handleLwt = async (deviceId: string) => {
+  const doc = await Device.findById(deviceId)
+  if (!doc || !doc.state.isOnline) return
+  doc.state.isOnline = false
+  await doc.save()
+  await writeLog(deviceId, 'device_offline')
+  const fresh = await Device.findById(deviceId).lean()
   if (fresh) appBus.emitDeviceUpdated(fresh)
 }
 

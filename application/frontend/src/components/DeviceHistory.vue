@@ -23,6 +23,11 @@ const LOG_LABEL: Record<LogType, string> = {
   auto_on: 'อัตโนมัติเปิด',
   auto_off: 'อัตโนมัติปิด',
   timer_expired: 'ตัวจับเวลาหมด',
+  cmd_ack: 'อุปกรณ์ตอบรับ',
+  cmd_timeout: 'ไม่ได้รับการตอบรับ',
+  device_online: 'ออนไลน์',
+  device_offline: 'ออฟไลน์',
+  paired: 'จับคู่สำเร็จ',
 }
 
 const isOnEvent = (type: LogType) =>

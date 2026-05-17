@@ -12,13 +12,6 @@ import { RouterLink } from 'vue-router'
       <RouterLink to="/" class="app-nav__link" exact-active-class="app-nav__link--active">
         อุปกรณ์ทั้งหมด
       </RouterLink>
-      <RouterLink
-        to="/register"
-        class="app-nav__link"
-        exact-active-class="app-nav__link--active"
-      >
-        ลงทะเบียนอุปกรณ์
-      </RouterLink>
     </div>
   </nav>
 </template>
