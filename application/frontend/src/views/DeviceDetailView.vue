@@ -35,42 +35,45 @@ const formatThaiDate = (isoDate: string) =>
 </script>
 
 <template>
-  <section v-if="device" class="device-detail">
-    <header class="device-detail__hero">
-      <BulbVisual class="device-detail__bulb" :level="isOnline ? brightness : 'off'" size="lg" />
-      <div class="device-detail__info">
-        <div class="device-detail__eyebrow-row">
-          <p class="device-detail__eyebrow">device_id</p>
+  <section v-if="device" class="detail">
+    <RouterLink to="/" class="detail__back">
+      <span aria-hidden="true">←</span>
+      <span>กลับ</span>
+    </RouterLink>
+
+    <header class="detail__hero">
+      <div class="detail__bulb-frame" :class="{ 'detail__bulb-frame--lit': isOnline && brightness !== 'off' }">
+        <BulbVisual :level="isOnline ? brightness : 'off'" size="lg" />
+      </div>
+      <div class="detail__info">
+        <div class="detail__chip-row">
           <span
-            class="device-detail__status"
-            :class="{
-              'device-detail__status--online': isOnline,
-              'device-detail__status--offline': !isOnline,
-            }"
+            class="chip"
+            :class="isOnline ? 'chip--online' : 'chip--offline'"
           >
-            <span class="device-detail__status-dot" />
+            <span class="chip__dot" />
             {{ isOnline ? 'ออนไลน์' : 'ออฟไลน์' }}
           </span>
           <span
             v-if="isOnline && brightness !== 'off'"
-            class="device-detail__brightness"
-            :class="`device-detail__brightness--${brightness}`"
+            class="chip"
+            :class="`chip--${brightness}`"
           >
             {{ BRIGHTNESS_LABELS[brightness] }}
-            <span v-if="deviceMode === 'auto'" class="device-detail__brightness-auto">· อัตโนมัติ</span>
+            <span v-if="deviceMode === 'auto'" class="chip__suffix">· อัตโนมัติ</span>
           </span>
         </div>
-        <h1 class="device-detail__id">{{ device.id }}</h1>
-        <p class="device-detail__location">{{ device.location }}</p>
-        <p class="device-detail__created">ลงทะเบียนเมื่อ · {{ formatThaiDate(device.createdAt) }}</p>
+        <h1 class="detail__id">{{ device.id }}</h1>
+        <p class="detail__location">{{ device.location }}</p>
+        <p class="detail__created">ลงทะเบียนเมื่อ · {{ formatThaiDate(device.createdAt) }}</p>
       </div>
     </header>
 
-    <div class="device-detail__tabs" role="tablist">
+    <div class="detail__tabs" role="tablist">
       <button
         type="button"
-        class="device-detail__tab"
-        :class="{ 'device-detail__tab--active': activeTab === 'control' }"
+        class="detail__tab"
+        :class="{ 'detail__tab--active': activeTab === 'control' }"
         role="tab"
         :aria-selected="activeTab === 'control'"
         @click="activeTab = 'control'"
@@ -79,8 +82,8 @@ const formatThaiDate = (isoDate: string) =>
       </button>
       <button
         type="button"
-        class="device-detail__tab"
-        :class="{ 'device-detail__tab--active': activeTab === 'history' }"
+        class="detail__tab"
+        :class="{ 'detail__tab--active': activeTab === 'history' }"
         role="tab"
         :aria-selected="activeTab === 'history'"
         @click="activeTab = 'history'"
@@ -105,175 +108,202 @@ const formatThaiDate = (isoDate: string) =>
 </template>
 
 <style scoped>
-.device-detail {
+.detail {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  max-width: 30rem;
+  gap: 0.7rem;
+  max-width: 32rem;
   margin: 0 auto;
 }
 
-.device-detail__hero {
+.detail__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: flex-start;
+  padding: 0.3rem 0.75rem 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: color 0.18s ease, transform 0.18s ease;
+}
+
+.detail__back:hover {
+  color: var(--accent-strong);
+  transform: translateX(-2px);
+}
+
+.detail__hero {
   display: flex;
   align-items: center;
-  gap: 0.9rem;
-  padding: 0.15rem 0;
+  gap: 0.85rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
-.device-detail__bulb {
+.detail__bulb-frame {
+  display: grid;
+  place-items: center;
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 50%;
+  background: var(--surface-sunk);
+  border: 1px solid var(--stroke);
   flex-shrink: 0;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 
-.device-detail__info {
+.detail__bulb-frame--lit {
+  background: radial-gradient(circle, rgba(252, 211, 77, 0.32) 0%, rgba(245, 158, 11, 0.16) 55%, var(--surface-sunk) 100%);
+  box-shadow:
+    0 0 0 4px rgba(245, 158, 11, 0.16),
+    0 0 24px rgba(252, 211, 77, 0.22);
+  border-color: rgba(245, 158, 11, 0.32);
+}
+
+.detail__info {
   min-width: 0;
   flex: 1;
 }
 
-.device-detail__eyebrow-row {
+.detail__chip-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin: 0 0 0.35rem;
+  gap: 0.35rem;
+  margin: 0 0 0.3rem;
   flex-wrap: wrap;
 }
 
-.device-detail__eyebrow {
-  margin: 0;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(148, 163, 184, 0.95);
-}
-
-.device-detail__status {
+.chip {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.15rem 0.55rem;
+  padding: 0.18rem 0.6rem;
   border-radius: 999px;
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   border: 1px solid transparent;
 }
 
-.device-detail__status-dot {
-  width: 0.42rem;
-  height: 0.42rem;
+.chip__dot {
+  width: 0.4rem;
+  height: 0.4rem;
   border-radius: 999px;
   background: currentColor;
 }
 
-.device-detail__status--online {
-  color: #bbf7d0;
-  background: rgba(74, 222, 128, 0.14);
-  border-color: rgba(74, 222, 128, 0.4);
+.chip--online {
+  color: var(--on-text);
+  background: var(--on-soft);
+  border-color: rgba(163, 230, 53, 0.28);
 }
 
-.device-detail__status--offline {
-  color: #fecaca;
-  background: rgba(248, 113, 113, 0.12);
-  border-color: rgba(248, 113, 113, 0.42);
+.chip--offline {
+  color: var(--offline-text);
+  background: var(--offline-soft);
+  border-color: rgba(251, 146, 60, 0.32);
 }
 
-.device-detail__brightness {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  border: 1px solid transparent;
+.chip--low {
+  color: var(--warm);
+  background: var(--warm-soft);
+  border-color: rgba(252, 211, 77, 0.32);
 }
 
-.device-detail__brightness--low {
-  color: #fde68a;
-  background: rgba(250, 204, 21, 0.16);
-  border-color: rgba(250, 204, 21, 0.38);
+.chip--high {
+  color: var(--warm-strong);
+  background: var(--accent-soft);
+  border-color: rgba(245, 158, 11, 0.38);
 }
 
-.device-detail__brightness--high {
-  color: #bbf7d0;
-  background: rgba(74, 222, 128, 0.16);
-  border-color: rgba(74, 222, 128, 0.4);
-}
-
-.device-detail__brightness-auto {
+.chip__suffix {
   opacity: 0.85;
   font-weight: 500;
 }
 
-.device-detail__id {
+.detail__id {
   margin: 0;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: clamp(1.25rem, 4vw, 1.55rem);
+  font-size: clamp(1.05rem, 3vw, 1.25rem);
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--text);
   word-break: break-all;
 }
 
-.device-detail__location {
-  margin: 0.25rem 0 0;
+.detail__location {
+  margin: 0.15rem 0 0;
+  color: var(--text-2);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.detail__created {
+  margin: 0.1rem 0 0;
+  font-size: 0.7rem;
   color: var(--muted);
-  font-size: 0.95rem;
 }
 
-.device-detail__created {
-  margin: 0.2rem 0 0;
-  font-size: 0.76rem;
-  color: rgba(148, 163, 184, 0.85);
-}
-
-.device-detail__tabs {
+.detail__tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.3rem;
-  padding: 0.28rem;
+  gap: 0.22rem;
+  padding: 0.22rem;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
-.device-detail__tab {
-  padding: 0.5rem 0.7rem;
+.detail__tab {
+  padding: 0.42rem 0.7rem;
   border: 0;
   background: transparent;
   border-radius: 999px;
-  color: rgba(226, 232, 240, 0.75);
+  color: var(--text-2);
   font-family: inherit;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    color 0.2s ease,
-    background 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: color 0.18s ease, background 0.18s ease;
 }
 
-.device-detail__tab--active {
-  color: var(--text);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.12) inset,
-    0 8px 22px rgba(0, 0, 0, 0.3);
+.detail__tab:hover { color: var(--text); }
+
+.detail__tab--active {
+  color: var(--warm-strong);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.28);
 }
 
-.device-detail__tab:focus-visible {
-  outline: 2px solid rgba(56, 189, 248, 0.55);
+.detail__tab:focus-visible {
+  outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
 }
 
 .not-found {
   max-width: 30rem;
   margin: 2rem auto;
-  padding: 1.6rem;
+  padding: 1.8rem;
   text-align: center;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: var(--surface);
-  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border: 1px dashed var(--stroke-strong);
 }
 
 .not-found__title {
@@ -285,7 +315,7 @@ const formatThaiDate = (isoDate: string) =>
 
 .not-found__body {
   margin: 0.55rem 0 1.1rem;
-  color: var(--muted);
+  color: var(--text-2);
   font-size: 0.9rem;
 }
 
@@ -296,7 +326,5 @@ const formatThaiDate = (isoDate: string) =>
   text-decoration: none;
 }
 
-.not-found__link:hover {
-  text-decoration: underline;
-}
+.not-found__link:hover { text-decoration: underline; }
 </style>

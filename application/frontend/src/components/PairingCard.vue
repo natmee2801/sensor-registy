@@ -35,21 +35,24 @@ const handleClaim = () => emit('claim', props.session)
 </script>
 
 <template>
-  <article class="pair-card" :class="{ 'pair-card--stale': isStale }">
-    <header class="pair-card__head">
-      <div class="pair-card__identity">
-        <span class="pair-card__id">{{ session.proposedId }}</span>
-        <span class="pair-card__mac">{{ session.mac }}</span>
+  <article class="pair" :class="{ 'pair--stale': isStale }">
+    <div class="pair__sweep" aria-hidden="true" />
+
+    <header class="pair__head">
+      <div class="pair__identity">
+        <span class="pair__id">{{ session.proposedId }}</span>
+        <span class="pair__mac">{{ session.mac }}</span>
       </div>
       <span
-        class="pair-card__badge"
-        :class="{ 'pair-card__badge--stale': isStale }"
+        class="pair__badge"
+        :class="{ 'pair__badge--stale': isStale }"
       >
+        <span class="pair__badge-dot" />
         {{ isStale ? 'ไม่ตอบสนอง' : 'พร้อม pair' }}
       </span>
     </header>
 
-    <dl class="pair-card__meta">
+    <dl class="pair__meta">
       <div>
         <dt>รุ่น</dt>
         <dd>{{ session.model ?? '—' }}</dd>
@@ -64,111 +67,186 @@ const handleClaim = () => emit('claim', props.session)
       </div>
     </dl>
 
-    <button type="button" class="pair-card__claim" @click="handleClaim">
-      Claim
+    <button type="button" class="pair__claim" @click="handleClaim">
+      <span>Claim อุปกรณ์</span>
+      <span aria-hidden="true">→</span>
     </button>
   </article>
 </template>
 
 <style scoped>
-.pair-card {
+.pair {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  padding: 1.1rem 1.15rem;
+  gap: 0.95rem;
+  padding: 1.15rem 1.2rem;
   border-radius: var(--radius-lg);
   background: var(--surface);
   border: 1px solid var(--stroke);
   color: var(--text);
-  transition: opacity 0.25s ease, border-color 0.25s ease;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  overflow: hidden;
+  transition: opacity 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease;
 }
 
-.pair-card--stale {
+.pair:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.pair__sweep {
+  position: absolute;
+  top: 0;
+  left: -40%;
+  width: 30%;
+  height: 100%;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(252, 211, 77, 0.12) 50%,
+    transparent 100%
+  );
+  animation: pairSweep 3.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pairSweep {
+  0% { left: -40%; }
+  60% { left: 130%; }
+  100% { left: 130%; }
+}
+
+.pair--stale {
   opacity: 0.55;
-  border-color: rgba(251, 146, 60, 0.45);
+  border-color: rgba(251, 146, 60, 0.32);
 }
 
-.pair-card__head {
+.pair--stale .pair__sweep { animation-play-state: paused; opacity: 0; }
+
+.pair__head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
 }
 
-.pair-card__identity {
+.pair__identity {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.25rem;
   min-width: 0;
 }
 
-.pair-card__id {
+.pair__id {
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
   font-size: 0.95rem;
-  font-weight: 600;
+  font-weight: 700;
   word-break: break-all;
+  letter-spacing: -0.01em;
 }
 
-.pair-card__mac {
-  font-size: 0.78rem;
+.pair__mac {
+  font-size: 0.76rem;
   color: var(--muted);
   font-family: ui-monospace, monospace;
 }
 
-.pair-card__badge {
+.pair__badge {
   flex-shrink: 0;
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 0.25rem 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.22rem 0.6rem;
   border-radius: 999px;
-  background: rgba(56, 189, 248, 0.18);
-  color: #bae6fd;
-  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  letter-spacing: 0.02em;
 }
 
-.pair-card__badge--stale {
-  background: rgba(251, 146, 60, 0.18);
-  color: #fed7aa;
-  border-color: rgba(251, 146, 60, 0.45);
+.pair__badge-dot {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 0 currentColor;
+  animation: pairDot 1.6s ease-in-out infinite;
 }
 
-.pair-card__meta {
+@keyframes pairDot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  50% { box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.28); }
+}
+
+.pair__badge--stale {
+  background: var(--offline-soft);
+  color: var(--offline-text);
+  border-color: rgba(251, 146, 60, 0.32);
+}
+
+.pair__badge--stale .pair__badge-dot {
+  background: var(--offline);
+  animation: none;
+}
+
+.pair__meta {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
+  gap: 0.65rem;
   margin: 0;
-  font-size: 0.78rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunk);
+  border: 1px solid var(--stroke);
 }
 
-.pair-card__meta dt {
-  color: rgba(148, 163, 184, 0.85);
-  font-size: 0.7rem;
-  letter-spacing: 0.04em;
+.pair__meta dt {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.pair-card__meta dd {
-  margin: 0.15rem 0 0;
+.pair__meta dd {
+  margin: 0.2rem 0 0;
   color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
-.pair-card__claim {
+.pair__claim {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
   width: 100%;
-  padding: 0.6rem 0.9rem;
+  padding: 0.75rem 0.95rem;
   border: 0;
   border-radius: var(--radius-md);
   cursor: pointer;
   font-family: inherit;
   font-size: 0.9rem;
-  font-weight: 600;
-  color: #042f1a;
-  background: linear-gradient(100deg, #4ade80 0%, #22c55e 100%);
-  box-shadow: 0 8px 24px rgba(34, 197, 94, 0.3);
-  transition: transform 0.18s ease, filter 0.18s ease;
+  font-weight: 700;
+  color: #1a1206;
+  background: linear-gradient(100deg, #fcd34d 0%, #f59e0b 60%, #ea580c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 8px 22px rgba(245, 158, 11, 0.32);
+  transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
 }
 
-.pair-card__claim:hover {
+.pair__claim:hover {
   filter: brightness(1.06);
   transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 12px 30px rgba(245, 158, 11, 0.4);
 }
 </style>

@@ -41,7 +41,7 @@ withDefaults(
 <style scoped>
 .bulb {
   display: block;
-  color: rgba(203, 213, 225, 0.65);
+  color: #6a6354;
   transition: color 0.3s ease, filter 0.3s ease;
 }
 
@@ -65,7 +65,7 @@ withDefaults(
 .bulb__rays line {
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.5;
+  stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -77,32 +77,31 @@ withDefaults(
 }
 
 .bulb--low {
-  color: #fde68a;
+  color: #fcd34d;
+  filter: drop-shadow(0 0 6px rgba(252, 211, 77, 0.35));
 }
 
 .bulb--low .bulb__fill {
-  opacity: 0.32;
+  fill: #fbbf24;
+  opacity: 0.55;
 }
 
 .bulb--high {
-  color: #fde047;
-  filter: drop-shadow(0 0 6px rgba(250, 204, 21, 0.45));
+  color: #fde68a;
+  filter: drop-shadow(0 0 10px rgba(252, 211, 77, 0.7));
 }
 
 .bulb--high .bulb__fill {
-  opacity: 0.7;
+  fill: #fcd34d;
+  opacity: 0.95;
 }
 
 .bulb--high .bulb__rays {
-  stroke: currentColor;
+  stroke: #fde68a;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bulb {
-    transition: none;
-  }
-  .bulb__fill {
-    transition: none;
-  }
+  .bulb { transition: none; }
+  .bulb__fill { transition: none; }
 }
 </style>

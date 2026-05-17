@@ -40,7 +40,7 @@ const LOG_LABEL: Record<LogType, string> = {
 const DIRECTION_GLYPH: Record<LogDirection, string> = {
   out: '→ ESP',
   in: '← ESP',
-  internal: '• ภายในระบบ',
+  internal: '• ระบบ',
 }
 const DIRECTION_TOOLTIP: Record<LogDirection, string> = {
   out: 'ส่งคำสั่งไปยังอุปกรณ์',
@@ -144,60 +144,60 @@ watch(refreshKey, (next, prev) => {
 </script>
 
 <template>
-  <div class="light-history-card">
-    <h2 class="card-title">ประวัติการเปลี่ยนสถานะ</h2>
+  <div class="history">
+    <h2 class="history__title">ประวัติการเปลี่ยนสถานะ</h2>
 
-    <ul v-if="timeline.length > 0" class="history-timeline">
+    <ul v-if="timeline.length > 0" class="timeline">
       <template v-for="item in timeline" :key="item.key">
-        <li v-if="item.type === 'separator'" class="history-separator">
-          <span class="history-separator__line" aria-hidden="true" />
-          <span class="history-separator__label">{{ item.separatorLabel }}</span>
-          <span class="history-separator__line" aria-hidden="true" />
+        <li v-if="item.type === 'separator'" class="timeline__sep">
+          <span class="timeline__sep-line" aria-hidden="true" />
+          <span class="timeline__sep-label">{{ item.separatorLabel }}</span>
+          <span class="timeline__sep-line" aria-hidden="true" />
         </li>
-        <li v-else-if="item.log" class="history-item">
+        <li v-else-if="item.log" class="timeline__item">
           <span
-            class="history-node"
-            :class="[`history-node--${item.log.direction}`]"
+            class="timeline__node"
+            :class="[`timeline__node--${item.log.direction}`]"
             aria-hidden="true"
           />
-          <div class="history-content">
-            <div class="history-meta">
+          <div class="timeline__content">
+            <div class="timeline__meta">
               <span
-                class="history-direction"
-                :class="[`history-direction--${item.log.direction}`]"
+                class="timeline__direction"
+                :class="[`timeline__direction--${item.log.direction}`]"
                 :title="DIRECTION_TOOLTIP[item.log.direction]"
               >
                 {{ DIRECTION_GLYPH[item.log.direction] }}
               </span>
-              <span v-if="outputLabel(item.log.output)" class="history-output-chip">
+              <span v-if="outputLabel(item.log.output)" class="timeline__output">
                 {{ outputLabel(item.log.output) }}
               </span>
-              <span class="history-time">{{ formatTime(item.log.createdAt) }}</span>
+              <span class="timeline__time">{{ formatTime(item.log.createdAt) }}</span>
             </div>
             <div
-              class="history-event"
+              class="timeline__event"
               :class="{
-                'history-event--on': isOnEvent(item.log.type) && item.log.isOn === true,
-                'history-event--off': isOnEvent(item.log.type) && item.log.isOn === false,
+                'timeline__event--on': isOnEvent(item.log.type) && item.log.isOn === true,
+                'timeline__event--off': isOnEvent(item.log.type) && item.log.isOn === false,
               }"
             >
               {{ LOG_LABEL[item.log.type] }}<span
                 v-if="item.log.isOn !== null"
-                class="history-event__suffix"
+                class="timeline__event-suffix"
               > · {{ item.log.isOn ? 'เปิด' : 'ปิด' }}</span>
             </div>
           </div>
         </li>
       </template>
     </ul>
-    <p v-else-if="!logsLoading" class="history-empty">
+    <p v-else-if="!logsLoading" class="history__empty">
       ยังไม่มีประวัติ — ลองสลับสถานะเพื่อดูรายการที่นี่
     </p>
-    <p v-else class="history-empty">กำลังโหลด…</p>
+    <p v-else class="history__empty">กำลังโหลด…</p>
 
     <button
       type="button"
-      class="history-load-more"
+      class="history__more"
       :disabled="!logsCursor || logsLoading"
       @click="loadLogs(false)"
     >
@@ -207,217 +207,221 @@ watch(refreshKey, (next, prev) => {
 </template>
 
 <style scoped>
-.light-history-card {
-  padding: 1.15rem 1.2rem;
+.history {
+  padding: 0.95rem 1rem 0.85rem;
   border-radius: var(--radius-lg);
   background: var(--surface);
   border: 1px solid var(--stroke);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 24px 60px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
-.card-title {
-  margin: 0 0 1rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+.history__title {
+  margin: 0 0 0.75rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(203, 213, 225, 0.92);
+  color: var(--muted);
 }
 
-.history-timeline {
+.timeline {
   position: relative;
   list-style: none;
-  margin: 0;
-  padding: 0 0 0 1.6rem;
-  border-left: 2px solid rgba(255, 255, 255, 0.08);
+  margin: 0 -0.25rem;
+  padding: 0.15rem 0.25rem 0.15rem 1.35rem;
+  border-left: 2px solid var(--stroke);
   display: flex;
   flex-direction: column;
-  gap: 0.05rem;
+  gap: 0;
+  max-height: clamp(12rem, 34vh, 22rem);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 158, 11, 0.32) transparent;
 }
 
-.history-item {
-  position: relative;
-  padding: 0.55rem 0;
+.timeline::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
 }
 
-.history-node {
-  position: absolute;
-  left: -2.05rem;
-  top: 0.85rem;
-  width: 0.65rem;
-  height: 0.65rem;
+.timeline::-webkit-scrollbar-thumb {
+  background: rgba(245, 158, 11, 0.32);
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.6);
-  box-shadow:
-    0 0 0 3px var(--surface),
-    0 0 0 4px rgba(255, 255, 255, 0.05);
 }
 
-.history-node--out {
-  background: #38bdf8;
-  box-shadow:
-    0 0 0 3px var(--surface),
-    0 0 0 4px rgba(56, 189, 248, 0.4),
-    0 0 10px rgba(56, 189, 248, 0.5);
+.timeline::-webkit-scrollbar-thumb:hover {
+  background: rgba(245, 158, 11, 0.5);
 }
 
-.history-node--in {
-  background: #a78bfa;
-  box-shadow:
-    0 0 0 3px var(--surface),
-    0 0 0 4px rgba(167, 139, 250, 0.4),
-    0 0 10px rgba(167, 139, 250, 0.5);
+.timeline__item {
+  position: relative;
+  padding: 0.32rem 0;
 }
 
-.history-node--internal {
-  background: rgba(148, 163, 184, 0.6);
-  box-shadow:
-    0 0 0 3px var(--surface),
-    0 0 0 4px rgba(148, 163, 184, 0.18);
+.timeline__node {
+  position: absolute;
+  left: -1.78rem;
+  top: 0.62rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #4a4538;
+  box-shadow: 0 0 0 3px rgba(20, 22, 31, 0.95);
 }
 
-.history-content {
+.timeline__node--out {
+  background: var(--accent-strong);
+  box-shadow:
+    0 0 0 3px rgba(20, 22, 31, 0.95),
+    0 0 0 4px rgba(245, 158, 11, 0.28),
+    0 0 10px rgba(245, 158, 11, 0.5);
+}
+
+.timeline__node--in {
+  background: var(--on);
+  box-shadow:
+    0 0 0 3px rgba(20, 22, 31, 0.95),
+    0 0 0 4px rgba(163, 230, 53, 0.28),
+    0 0 10px rgba(163, 230, 53, 0.45);
+}
+
+.timeline__node--internal {
+  background: #4a4538;
+}
+
+.timeline__content {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.1rem;
 }
 
-.history-meta {
+.timeline__meta {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  font-size: 0.74rem;
+  gap: 0.35rem;
+  font-size: 0.7rem;
   flex-wrap: wrap;
 }
 
-.history-direction {
+.timeline__direction {
   display: inline-flex;
   align-items: center;
-  padding: 0.12rem 0.45rem;
+  padding: 0.06rem 0.42rem;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  font-size: 0.7rem;
+  background: var(--surface-sunk);
+  border: 1px solid var(--stroke);
+  font-size: 0.66rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: rgba(203, 213, 225, 0.85);
+  color: var(--text-2);
   cursor: help;
 }
 
-.history-direction--out {
-  color: #bae6fd;
-  background: rgba(56, 189, 248, 0.14);
-  border-color: rgba(56, 189, 248, 0.32);
+.timeline__direction--out {
+  color: var(--warm-strong);
+  background: var(--accent-soft);
+  border-color: rgba(245, 158, 11, 0.32);
 }
 
-.history-direction--in {
-  color: #ddd6fe;
-  background: rgba(167, 139, 250, 0.14);
-  border-color: rgba(167, 139, 250, 0.32);
+.timeline__direction--in {
+  color: var(--on-text);
+  background: var(--on-soft);
+  border-color: rgba(163, 230, 53, 0.32);
 }
 
-.history-direction--internal {
-  color: rgba(203, 213, 225, 0.85);
-}
-
-.history-output-chip {
+.timeline__output {
   display: inline-flex;
-  padding: 0.12rem 0.45rem;
+  padding: 0.06rem 0.42rem;
   border-radius: 999px;
-  background: rgba(250, 204, 21, 0.1);
-  border: 1px solid rgba(250, 204, 21, 0.25);
-  color: #fde68a;
-  font-size: 0.7rem;
+  background: var(--warm-soft);
+  border: 1px solid rgba(252, 211, 77, 0.28);
+  color: var(--warm);
+  font-size: 0.66rem;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
-.history-time {
+.timeline__time {
   margin-left: auto;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 0.72rem;
-  color: rgba(148, 163, 184, 0.85);
+  font-size: 0.68rem;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
-.history-event {
-  font-size: 0.9rem;
+.timeline__event {
+  font-size: 0.84rem;
   font-weight: 600;
-  color: rgba(226, 232, 240, 0.92);
+  color: var(--text);
+  line-height: 1.35;
 }
 
-.history-event--on {
-  color: #bbf7d0;
-}
+.timeline__event--on { color: var(--on-text); }
+.timeline__event--off { color: var(--offline-text); }
 
-.history-event--off {
-  color: #fecaca;
-}
-
-.history-event__suffix {
+.timeline__event-suffix {
   font-weight: 500;
-  opacity: 0.92;
+  opacity: 0.9;
 }
 
-.history-separator {
+.timeline__sep {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  margin: 0.85rem 0 0.2rem;
-  margin-left: -1.6rem;
+  gap: 0.6rem;
+  margin: 0.5rem 0 0.15rem;
+  margin-left: -1.35rem;
   padding-left: 0.4rem;
 }
 
-.history-separator__line {
+.timeline__sep:first-child { margin-top: 0; }
+
+.timeline__sep-line {
   flex: 1;
   height: 1px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--stroke);
 }
 
-.history-separator__label {
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+.timeline__sep-label {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(148, 163, 184, 0.85);
+  color: var(--muted);
 }
 
-.history-empty {
+.history__empty {
   margin: 0;
-  padding: 0.35rem 0 0.15rem;
-  color: var(--muted);
-  font-size: 0.88rem;
+  padding: 0.4rem 0 0.2rem;
+  color: var(--text-2);
+  font-size: 0.9rem;
   line-height: 1.5;
 }
 
-.history-load-more {
-  margin-top: 0.95rem;
+.history__more {
+  margin-top: 0.7rem;
   width: 100%;
-  padding: 0.55rem 0.95rem;
+  padding: 0.5rem 1rem;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(15, 23, 42, 0.55);
-  color: rgba(226, 232, 240, 0.92);
+  border: 1px solid var(--stroke-strong);
+  background: var(--surface-sunk);
+  color: var(--text-2);
   font-family: inherit;
-  font-size: 0.85rem;
-  font-weight: 500;
+  font-size: 0.82rem;
+  font-weight: 600;
   cursor: pointer;
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
-.history-load-more:hover:not(:disabled) {
-  background: rgba(56, 189, 248, 0.12);
-  border-color: rgba(56, 189, 248, 0.4);
+.history__more:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: rgba(245, 158, 11, 0.32);
+  color: var(--warm-strong);
 }
 
-.history-load-more:disabled {
-  opacity: 0.6;
+.history__more:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 </style>

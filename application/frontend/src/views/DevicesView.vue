@@ -15,6 +15,9 @@ const tab = ref<'devices' | 'pairing'>('devices')
 const query = ref('')
 const filtered = computed(() => store.searchDevices(query.value))
 const totalCount = computed(() => deviceList.value.length)
+const onlineCount = computed(
+  () => deviceList.value.filter((d) => store.states[d.id]?.isOnline).length,
+)
 
 const STALE_HIDE_MS = 5 * 60 * 1000
 const nowTick = ref(Date.now())
@@ -39,82 +42,101 @@ const closeClaim = () => {
 
 <template>
   <section class="devices-view">
-    <header class="devices-view__hero">
-      <div>
-        <p class="devices-view__eyebrow">Smart lighting</p>
-        <h1 class="devices-view__title">อุปกรณ์ทั้งหมด</h1>
-        <p class="devices-view__subtitle">
-          เปิดอุปกรณ์ใหม่ให้ประกาศตัวผ่าน MQTT แล้ว claim จากแท็บ Pairing
-        </p>
+    <header class="hero">
+      <div class="hero__lead">
+        <h1 class="hero__title">อุปกรณ์ทั้งหมด</h1>
+        <span class="hero__pulse">
+          <span class="hero__pulse-dot" />
+          live
+        </span>
+      </div>
+      <div class="hero__metrics">
+        <span class="hero__metric">
+          <span class="hero__metric-num">{{ onlineCount }}</span>
+          <span class="hero__metric-label">/ {{ totalCount }} ออนไลน์</span>
+        </span>
+        <span
+          v-if="pairingCount > 0"
+          class="hero__metric hero__metric--pair"
+        >
+          <span class="hero__metric-num">{{ pairingCount }}</span>
+          <span class="hero__metric-label">รอ pair</span>
+        </span>
       </div>
     </header>
 
-    <div class="devices-view__tabs" role="tablist">
+    <div class="tabs" role="tablist">
       <button
         type="button"
-        class="devices-view__tab"
-        :class="{ 'devices-view__tab--active': tab === 'devices' }"
+        class="tabs__item"
+        :class="{ 'tabs__item--active': tab === 'devices' }"
         role="tab"
         :aria-selected="tab === 'devices'"
         @click="tab = 'devices'"
       >
-        Devices <span class="devices-view__tab-count">({{ totalCount }})</span>
+        <span>Devices</span>
+        <span class="tabs__count">{{ totalCount }}</span>
       </button>
       <button
         type="button"
-        class="devices-view__tab"
+        class="tabs__item"
         :class="{
-          'devices-view__tab--active': tab === 'pairing',
-          'devices-view__tab--pulse': pairingCount > 0 && tab !== 'pairing',
+          'tabs__item--active': tab === 'pairing',
+          'tabs__item--alert': pairingCount > 0 && tab !== 'pairing',
         }"
         role="tab"
         :aria-selected="tab === 'pairing'"
         @click="tab = 'pairing'"
       >
-        Pairing <span class="devices-view__tab-count">({{ pairingCount }})</span>
+        <span>Pairing</span>
+        <span class="tabs__count">{{ pairingCount }}</span>
       </button>
     </div>
 
     <template v-if="tab === 'devices'">
-      <div class="devices-view__search">
-        <span class="devices-view__search-icon" aria-hidden="true">⌕</span>
+      <div class="search">
+        <svg class="search__icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.7" />
+          <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+        </svg>
         <input
           v-model="query"
-          class="devices-view__search-input"
+          class="search__input"
           type="search"
           placeholder="ค้นหาด้วย device_id หรือตำแหน่ง"
           autocomplete="off"
         />
-        <span v-if="query" class="devices-view__search-count">
-          {{ filtered.length }} / {{ totalCount }}
-        </span>
+        <span v-if="query" class="search__count">{{ filtered.length }} / {{ totalCount }}</span>
       </div>
 
-      <div v-if="totalCount === 0" class="devices-view__empty">
-        <p class="devices-view__empty-title">ยังไม่มีอุปกรณ์</p>
-        <p class="devices-view__empty-body">
+      <div v-if="totalCount === 0" class="empty">
+        <span class="empty__icon" aria-hidden="true">○</span>
+        <p class="empty__title">ยังไม่มีอุปกรณ์</p>
+        <p class="empty__body">
           เปิดสวิตช์อุปกรณ์ตัวแรก แล้วไปที่แท็บ Pairing เพื่อ claim
         </p>
       </div>
 
-      <div v-else-if="filtered.length === 0" class="devices-view__empty">
-        <p class="devices-view__empty-title">ไม่พบอุปกรณ์ที่ตรงกับคำค้น</p>
-        <p class="devices-view__empty-body">ลองค้นด้วย device_id หรือชื่อห้องอื่น</p>
+      <div v-else-if="filtered.length === 0" class="empty">
+        <span class="empty__icon" aria-hidden="true">⌕</span>
+        <p class="empty__title">ไม่พบอุปกรณ์ที่ตรงกับคำค้น</p>
+        <p class="empty__body">ลองค้นด้วย device_id หรือชื่อห้องอื่น</p>
       </div>
 
-      <div v-else class="devices-view__grid">
+      <div v-else class="grid">
         <DeviceCard v-for="device in filtered" :key="device.id" :device="device" />
       </div>
     </template>
 
     <template v-else>
-      <div v-if="pairingCount === 0" class="devices-view__empty">
-        <p class="devices-view__empty-title">ยังไม่มีอุปกรณ์รอ pair</p>
-        <p class="devices-view__empty-body">
+      <div v-if="pairingCount === 0" class="empty">
+        <span class="empty__icon" aria-hidden="true">⌁</span>
+        <p class="empty__title">ยังไม่มีอุปกรณ์รอ pair</p>
+        <p class="empty__body">
           เสียบไฟอุปกรณ์ตัวใหม่ — ภายในไม่กี่วินาทีจะปรากฏที่นี่
         </p>
       </div>
-      <div v-else class="devices-view__grid">
+      <div v-else class="grid">
         <PairingCard
           v-for="session in visibleUnclaimed"
           :key="session.mac"
@@ -132,110 +154,193 @@ const closeClaim = () => {
 .devices-view {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.85rem;
 }
 
-.devices-view__hero {
+.hero {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.85rem;
   flex-wrap: wrap;
+  padding: 0.3rem 0.2rem 0.1rem;
 }
 
-.devices-view__eyebrow {
-  margin: 0 0 0.2rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+.hero__lead {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.hero__pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  background: var(--on-soft);
+  color: var(--on-text);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(148, 163, 184, 0.95);
+  border: 1px solid rgba(163, 230, 53, 0.28);
 }
 
-.devices-view__title {
+.hero__pulse-dot {
+  width: 0.36rem;
+  height: 0.36rem;
+  border-radius: 50%;
+  background: var(--on);
+  animation: heroPulse 1.8s ease-out infinite;
+}
+
+@keyframes heroPulse {
+  0% { box-shadow: 0 0 0 0 rgba(163, 230, 53, 0.55); }
+  100% { box-shadow: 0 0 0 6px rgba(163, 230, 53, 0); }
+}
+
+.hero__title {
   margin: 0;
-  font-size: clamp(1.6rem, 4.5vw, 2.1rem);
+  font-size: clamp(1.35rem, 3.5vw, 1.7rem);
   font-weight: 700;
   letter-spacing: -0.02em;
-  background: linear-gradient(90deg, #f8fafc 0%, #cbd5e1 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--text);
+  line-height: 1.15;
 }
 
-.devices-view__subtitle {
-  margin: 0.4rem 0 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.55;
-}
-
-.devices-view__tabs {
+.hero__metrics {
   display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.hero__metric {
+  display: inline-flex;
+  align-items: baseline;
   gap: 0.3rem;
-  padding: 0.3rem;
+  padding: 0.25rem 0.65rem;
   border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--stroke);
+  font-size: 0.78rem;
+  color: var(--text-2);
+}
+
+.hero__metric-num {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.hero__metric-label {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.hero__metric--pair {
+  background: var(--accent-soft);
+  border-color: rgba(245, 158, 11, 0.32);
+  animation: metricPulse 1.8s ease-in-out infinite;
+}
+
+.hero__metric--pair .hero__metric-num { color: var(--warm-strong); }
+.hero__metric--pair .hero__metric-label { color: var(--accent-strong); }
+
+@keyframes metricPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  50% { box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.18); }
+}
+
+.tabs {
+  display: inline-flex;
+  gap: 0.2rem;
+  padding: 0.22rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   width: fit-content;
 }
 
-.devices-view__tab {
-  padding: 0.5rem 1.1rem;
+.tabs__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.85rem;
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: rgba(203, 213, 225, 0.85);
+  color: var(--text-2);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: background 0.18s ease, color 0.18s ease;
 }
 
-.devices-view__tab:hover {
-  color: var(--text);
+.tabs__item:hover { color: var(--text); }
+
+.tabs__item--active {
+  color: var(--warm-strong);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.28);
 }
 
-.devices-view__tab--active {
-  background: linear-gradient(100deg, var(--accent) 0%, var(--accent-2) 100%);
-  color: #0b1326;
+.tabs__count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-sunk);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
 }
 
-.devices-view__tab--pulse {
-  animation: pulse 1.6s ease-in-out infinite;
+.tabs__item--active .tabs__count {
+  background: rgba(245, 158, 11, 0.18);
+  color: var(--warm-strong);
 }
 
-@keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
-  50% { box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.15); }
+.tabs__item--alert {
+  animation: alertPulse 1.6s ease-in-out infinite;
 }
 
-.devices-view__tab-count {
-  font-size: 0.75rem;
-  opacity: 0.85;
-  margin-left: 0.15rem;
+@keyframes alertPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  50% { box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.18); }
 }
 
-.devices-view__search {
+.search {
   position: relative;
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.7rem 1rem;
-  border-radius: var(--radius-lg);
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-sm);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.devices-view__search-icon {
-  color: rgba(148, 163, 184, 0.85);
-  font-size: 1.05rem;
+.search:focus-within {
+  border-color: rgba(245, 158, 11, 0.45);
+  box-shadow: var(--shadow-sm), 0 0 0 4px var(--accent-tint);
 }
 
-.devices-view__search-input {
+.search__icon { color: var(--muted); flex-shrink: 0; }
+
+.search__input {
   flex: 1;
   border: 0;
   background: transparent;
@@ -245,41 +350,59 @@ const closeClaim = () => {
   outline: none;
 }
 
-.devices-view__search-input::placeholder {
-  color: rgba(148, 163, 184, 0.7);
-}
+.search__input::placeholder { color: var(--muted); }
 
-.devices-view__search-count {
-  font-size: 0.75rem;
-  color: rgba(148, 163, 184, 0.85);
+.search__count {
+  font-size: 0.74rem;
+  color: var(--muted);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-.devices-view__empty {
-  padding: 1.5rem 1.4rem;
-  border-radius: var(--radius-lg);
+.empty {
+  padding: 1.4rem 1.25rem 1.5rem;
+  border-radius: var(--radius-xl);
   background: var(--surface);
-  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border: 1px dashed var(--stroke-strong);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
-.devices-view__empty-title {
+.empty__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  background: var(--surface-sunk);
+  color: var(--muted);
+  font-size: 1.15rem;
+  margin-bottom: 0.25rem;
+}
+
+.empty__title {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--text);
 }
 
-.devices-view__empty-body {
-  margin: 0.5rem 0 0;
-  color: var(--muted);
-  font-size: 0.88rem;
+.empty__body {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 0.9rem;
   line-height: 1.55;
+  max-width: 26rem;
 }
 
-.devices-view__grid {
+.grid {
   display: grid;
   gap: 0.85rem;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 </style>
