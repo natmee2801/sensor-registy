@@ -12,6 +12,7 @@ const { states } = storeToRefs(store)
 
 const state = computed(() => states.value[props.deviceId])
 const isOn = computed(() => state.value?.isOn ?? false)
+const isOnline = computed(() => state.value?.isOnline ?? false)
 const controlMode = computed(() => state.value?.controlMode ?? 'manual')
 const autoOnTime = computed({
   get: () => state.value?.autoOnTime ?? '18:00',
@@ -115,25 +116,43 @@ const handleRemove = async () => {
 
 <template>
   <div v-if="state" class="device-control">
-    <div class="light-status-card">
+    <div class="light-status-card" :class="{ 'light-status-card--offline': !isOnline }">
       <div class="card-head">
         <h2 class="card-title">สถานะล่าสุด</h2>
-        <span class="card-badge" :class="{ 'card-badge--on': isOn }">
-          {{ isOn ? 'กำลังทำงาน' : 'พักอยู่' }}
+        <span
+          class="card-badge"
+          :class="{
+            'card-badge--on': isOn && isOnline,
+            'card-badge--offline': !isOnline,
+          }"
+        >
+          {{ !isOnline ? 'ออฟไลน์' : isOn ? 'กำลังทำงาน' : 'พักอยู่' }}
         </span>
       </div>
       <div class="status-showcase">
-        <div class="status-stage" :class="{ 'status-stage--on': isOn }">
-          <BulbVisual :on="isOn" size="md" />
+        <div class="status-stage" :class="{ 'status-stage--on': isOn && isOnline }">
+          <BulbVisual :on="isOn && isOnline" size="md" />
         </div>
         <div class="status-body">
-          <p class="status-label">สถานะปัจจุบัน</p>
-          <p class="status-headline" :class="{ 'status-headline--on': isOn }">
+          <p class="status-label">
+            {{ isOnline ? 'สถานะปัจจุบัน' : 'สถานะล่าสุดที่บันทึก' }}
+          </p>
+          <p
+            class="status-headline"
+            :class="{
+              'status-headline--on': isOn && isOnline,
+              'status-headline--offline': !isOnline,
+            }"
+          >
             {{ isOn ? 'เปิดอยู่' : 'ปิดอยู่' }}
           </p>
           <p v-if="state.lastUpdatedAt" class="updated-time">
             อัปเดตล่าสุด · {{ formatThaiDateTime(state.lastUpdatedAt) }}
           </p>
+          <p v-if="!isOnline && state.lastSeenAt" class="offline-time">
+            เห็นล่าสุด · {{ formatThaiDateTime(state.lastSeenAt) }}
+          </p>
+          <p v-else-if="!isOnline" class="offline-time">ยังไม่เคย heartbeat</p>
         </div>
       </div>
     </div>
@@ -200,18 +219,20 @@ const handleRemove = async () => {
       <button
         type="button"
         class="toggle-button"
-        :class="{ 'toggle-button--off': !isOn && controlMode !== 'auto' }"
-        :disabled="controlMode === 'auto'"
+        :class="{ 'toggle-button--off': !isOn && controlMode !== 'auto' && isOnline }"
+        :disabled="controlMode === 'auto' || !isOnline"
         @click="store.toggleDevice(deviceId)"
       >
         <span class="toggle-button__shine" aria-hidden="true" />
         <span class="toggle-button__text">
           {{
-            controlMode === 'auto'
-              ? 'โหมดอัตโนมัติกำลังควบคุมอยู่'
-              : isOn
-                ? 'ปิดหลอดไฟ'
-                : 'เปิดหลอดไฟ'
+            !isOnline
+              ? 'อุปกรณ์ออฟไลน์'
+              : controlMode === 'auto'
+                ? 'โหมดอัตโนมัติกำลังควบคุมอยู่'
+                : isOn
+                  ? 'ปิดหลอดไฟ'
+                  : 'เปิดหลอดไฟ'
           }}
         </span>
       </button>
@@ -312,6 +333,16 @@ const handleRemove = async () => {
   border-color: rgba(74, 222, 128, 0.35);
 }
 
+.card-badge--offline {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.light-status-card--offline {
+  opacity: 0.92;
+}
+
 .status-showcase {
   display: flex;
   align-items: center;
@@ -376,10 +407,20 @@ const handleRemove = async () => {
   text-shadow: 0 0 28px rgba(74, 222, 128, 0.35);
 }
 
+.status-headline--offline {
+  color: rgba(226, 232, 240, 0.55);
+}
+
 .updated-time {
   margin: 0.5rem 0 0;
   font-size: 0.8rem;
   color: rgba(148, 163, 184, 0.95);
+}
+
+.offline-time {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: rgba(248, 113, 113, 0.75);
 }
 
 .segmented {

@@ -15,6 +15,8 @@ const { devices, states } = storeToRefs(store)
 
 const device = computed(() => devices.value[props.id] ?? null)
 const isOn = computed(() => states.value[props.id]?.isOn ?? false)
+const isOnline = computed(() => states.value[props.id]?.isOnline ?? false)
+const heroLit = computed(() => isOn.value && isOnline.value)
 
 const activeTab = ref<'control' | 'history'>('control')
 
@@ -33,11 +35,30 @@ const formatThaiDate = (isoDate: string) =>
 <template>
   <section v-if="device" class="device-detail">
     <header class="device-detail__hero">
-      <div class="device-detail__stage" :class="{ 'device-detail__stage--on': isOn }">
-        <BulbVisual :on="isOn" size="lg" />
+      <div
+        class="device-detail__stage"
+        :class="{
+          'device-detail__stage--on': heroLit,
+          'device-detail__stage--offline': !isOnline,
+        }"
+      >
+        <BulbVisual :on="heroLit" size="lg" />
       </div>
       <div class="device-detail__info">
-        <p class="device-detail__eyebrow">device_id</p>
+        <div class="device-detail__eyebrow-row">
+          <p class="device-detail__eyebrow">device_id</p>
+          <span
+            class="device-detail__status"
+            :class="{
+              'device-detail__status--online': isOnline,
+              'device-detail__status--offline': !isOnline,
+            }"
+            :title="isOnline ? 'online' : 'offline'"
+          >
+            <span class="device-detail__status-dot" />
+            {{ isOnline ? 'ออนไลน์' : 'ออฟไลน์' }}
+          </span>
+        </div>
         <h1 class="device-detail__id">{{ device.id }}</h1>
         <p class="device-detail__location">{{ device.location }}</p>
         <p class="device-detail__created">ลงทะเบียนเมื่อ · {{ formatThaiDate(device.createdAt) }}</p>
@@ -135,17 +156,61 @@ const formatThaiDate = (isoDate: string) =>
     linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
 }
 
+.device-detail__stage--offline {
+  opacity: 0.55;
+  filter: grayscale(0.55);
+}
+
 .device-detail__info {
   min-width: 0;
 }
 
-.device-detail__eyebrow {
+.device-detail__eyebrow-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
   margin: 0 0 0.2rem;
+  flex-wrap: wrap;
+}
+
+.device-detail__eyebrow {
+  margin: 0;
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: rgba(148, 163, 184, 0.95);
+}
+
+.device-detail__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+}
+
+.device-detail__status-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.device-detail__status--online {
+  color: #bbf7d0;
+  background: rgba(74, 222, 128, 0.14);
+  border-color: rgba(74, 222, 128, 0.4);
+}
+
+.device-detail__status--offline {
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.42);
 }
 
 .device-detail__id {

@@ -12,6 +12,7 @@ export const LOG_TYPES = [
   'cmd_timeout',
   'device_online',
   'device_offline',
+  'hb_sync',
   'paired',
 ] as const
 

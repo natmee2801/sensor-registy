@@ -56,10 +56,21 @@ export const getDevice = async (id: string) => {
 }
 
 export const removeDevice = async (id: string) => {
-  const result = await Device.deleteOne({ _id: id })
-  if (result.deletedCount === 0) throw new NotFoundError(`ไม่พบ device "${id}"`)
+  const doc = await Device.findById(id).lean()
+  if (!doc) throw new NotFoundError(`ไม่พบ device "${id}"`)
+  await Device.deleteOne({ _id: id })
   await DeviceLog.deleteMany({ deviceId: id })
   appBus.emitDeviceRemoved(id)
+
+  const mac = doc.state?.mac
+  if (mac) {
+    mqtt.clearPairAck(mac).catch((err) => {
+      logger.warn({ err, mac }, 'mqtt clearPairAck failed')
+    })
+  }
+  mqtt.clearDeviceLwt(id).catch((err) => {
+    logger.warn({ err, deviceId: id }, 'mqtt clearDeviceLwt failed')
+  })
 }
 
 export const toggleDevice = async (id: string) => {
@@ -67,6 +78,9 @@ export const toggleDevice = async (id: string) => {
   if (!doc) throw new NotFoundError(`ไม่พบ device "${id}"`)
   if (doc.state.controlMode === 'auto') {
     throw new StateError('โหมดอัตโนมัติกำลังควบคุมอยู่ ไม่สามารถสลับด้วยตนเอง')
+  }
+  if (!doc.state.isOnline) {
+    throw new StateError('อุปกรณ์ออฟไลน์ ไม่สามารถสั่งงานได้')
   }
   const nextOn = !doc.state.isOn
   await applyToggle(id, nextOn, 'toggle')
@@ -149,14 +163,46 @@ export const handleAck = async (
   deviceId: string,
   payload: { cmdId: string; status: 'applied' | 'error'; isOn?: boolean },
 ) => {
+  const doc = await Device.findById(deviceId)
+  if (!doc) return
+
+  const wasOffline = !doc.state.isOnline
+  if (wasOffline) {
+    doc.state.isOnline = true
+    doc.state.lastSeenAt = new Date()
+  }
+  if (typeof payload.isOn === 'boolean' && payload.isOn !== doc.state.isOn) {
+    doc.state.isOn = payload.isOn
+    doc.state.lastUpdatedAt = new Date()
+  }
+  await doc.save()
+
   await writeLog(deviceId, 'cmd_ack', {
     isOn: payload.isOn ?? null,
     meta: { cmdId: payload.cmdId, status: payload.status },
   })
+  if (wasOffline) {
+    await writeLog(deviceId, 'device_online', {
+      isOn: payload.isOn ?? null,
+      meta: { reason: 'cmd_ack_after_offline' },
+    })
+  }
+  const fresh = await Device.findById(deviceId).lean()
+  if (fresh) appBus.emitDeviceUpdated(fresh)
 }
 
 export const handleCmdTimeout = async (deviceId: string, cmdId: string) => {
+  const doc = await Device.findById(deviceId)
+  if (!doc) return
   await writeLog(deviceId, 'cmd_timeout', { meta: { cmdId } })
+
+  if (doc.state.isOnline) {
+    doc.state.isOnline = false
+    await doc.save()
+    await writeLog(deviceId, 'device_offline', { meta: { reason: 'cmd_timeout' } })
+    const fresh = await Device.findById(deviceId).lean()
+    if (fresh) appBus.emitDeviceUpdated(fresh)
+  }
 }
 
 export const handleHeartbeat = async (
@@ -168,11 +214,25 @@ export const handleHeartbeat = async (
   const wasOnline = doc.state.isOnline
   doc.state.isOnline = true
   doc.state.lastSeenAt = new Date()
+
+  let drifted = false
+  if (typeof payload.isOn === 'boolean' && payload.isOn !== doc.state.isOn) {
+    doc.state.isOn = payload.isOn
+    doc.state.lastUpdatedAt = new Date()
+    drifted = true
+  }
   await doc.save()
+
   if (!wasOnline) {
     await writeLog(deviceId, 'device_online', {
       isOn: payload.isOn ?? null,
       meta: { rssi: payload.rssi ?? null, uptime: payload.uptime ?? null },
+    })
+  }
+  if (drifted) {
+    await writeLog(deviceId, 'hb_sync', {
+      isOn: payload.isOn ?? null,
+      meta: { reason: 'heartbeat reported isOn differs from db' },
     })
   }
   const fresh = await Device.findById(deviceId).lean()
@@ -189,9 +249,34 @@ export const handleLwt = async (deviceId: string) => {
   if (fresh) appBus.emitDeviceUpdated(fresh)
 }
 
+export const reconcileStaleHeartbeats = async (
+  graceMs: number,
+  now: Date = new Date(),
+) => {
+  const threshold = new Date(now.getTime() - graceMs)
+  const stale = await Device.find({
+    'state.isOnline': true,
+    $or: [
+      { 'state.lastSeenAt': null },
+      { 'state.lastSeenAt': { $lt: threshold } },
+    ],
+  })
+    .select('_id state.lastSeenAt')
+    .lean()
+
+  for (const d of stale) {
+    try {
+      await handleLwt(d._id)
+    } catch (err) {
+      logger.warn({ err, deviceId: d._id }, 'reconcileStaleHeartbeats failed')
+    }
+  }
+}
+
 export const applyAutoScheduleIfNeeded = async (id: string, now: Date = new Date()) => {
   const doc = await Device.findById(id).lean()
   if (!doc || doc.state.controlMode !== 'auto') return
+  if (!doc.state.isOnline) return
   const shouldBeOn = computeShouldBeOn(now, doc.state.autoOnTime, doc.state.autoOffTime)
   if (doc.state.isOn !== shouldBeOn) {
     await applyToggle(id, shouldBeOn, shouldBeOn ? 'auto_on' : 'auto_off')
@@ -204,7 +289,7 @@ export const expireTimerIfDue = async (id: string, now: Date = new Date()) => {
   const endsAt = doc.state.offTimerEndsAt
   if (!endsAt) return
   if (endsAt.getTime() > now.getTime()) return
-  if (doc.state.isOn) {
+  if (doc.state.isOn && doc.state.isOnline) {
     await applyToggle(id, false, 'timer_expired')
   } else {
     await Device.updateOne({ _id: id }, { $set: { 'state.offTimerEndsAt': null } })

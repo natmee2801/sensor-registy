@@ -150,6 +150,32 @@ export const publishPairAck = async (mac: string, deviceId: string): Promise<voi
   })
 }
 
+export const clearPairAck = async (mac: string): Promise<void> => {
+  if (!client?.connected) return
+  await new Promise<void>((resolve, reject) => {
+    client!.publish(`pair/ack/${mac}`, '', { qos: 1, retain: true }, (err) => {
+      if (err) reject(err)
+      else resolve()
+    })
+  })
+}
+
+export const clearDeviceLwt = async (deviceId: string): Promise<void> => {
+  if (!client?.connected) return
+  await new Promise<void>((resolve, reject) => {
+    client!.publish(`dev/${deviceId}/lwt`, '', { qos: 1, retain: true }, (err) => {
+      if (err) reject(err)
+      else resolve()
+    })
+  })
+  await new Promise<void>((resolve, reject) => {
+    client!.publish(`dev/${deviceId}/hb`, '', { qos: 0, retain: true }, (err) => {
+      if (err) reject(err)
+      else resolve()
+    })
+  })
+}
+
 export const disconnect = async (): Promise<void> => {
   if (!client) return
   await new Promise<void>((resolve) => client!.end(false, {}, () => resolve()))

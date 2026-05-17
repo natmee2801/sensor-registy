@@ -1,8 +1,19 @@
 import { Device } from '../models/Device.ts'
-import { applyAutoScheduleIfNeeded, expireTimerIfDue } from './devices.ts'
+import {
+  applyAutoScheduleIfNeeded,
+  expireTimerIfDue,
+  reconcileStaleHeartbeats,
+} from './devices.ts'
 import { logger } from '../lib/logger.ts'
+import { env } from '../config/env.ts'
 
 export const runTick = async (now: Date = new Date()): Promise<void> => {
+  try {
+    await reconcileStaleHeartbeats(env.HEARTBEAT_GRACE_MS, now)
+  } catch (err) {
+    logger.error({ err }, 'tick: reconcile stale heartbeats failed')
+  }
+
   const candidates = await Device.find({
     $or: [
       { 'state.controlMode': 'auto' },
