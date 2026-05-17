@@ -167,7 +167,7 @@ sequenceDiagram
 - ESP รีบูตเอง (watchdog/brownout) ระหว่าง apply cmd
 - Backend optimistic flip แต่ ESP ตอน apply เจอ error (เช่น GPIO ติด)
 
-## 5. Remove device
+## 5. Remove device + auto re-pair
 
 ```mermaid
 sequenceDiagram
@@ -175,6 +175,7 @@ sequenceDiagram
   participant B as Backend
   participant D as Mongo
   participant M as Mosquitto
+  participant E as ESP
 
   U->>B: DELETE /api/devices/{id}
   B->>D: Device.findById → ดึง state.mac
@@ -189,12 +190,33 @@ sequenceDiagram
       B->>M: publish pair/ack/{mac} '' retain
       B->>M: publish dev/{id}/lwt '' retain
       B->>M: publish dev/{id}/hb '' retain
+    and trigger ESP re-pair
+      B->>M: publish dev/{id}/wipe '1' qos1 (non-retained)
     end
 
-    Note over M: ESP ที่ erase flash + re-pair<br/>จะไม่เจอ ack เก่า
-    Note over M: ESP ที่ค้าง id เดิม<br/>publish hb → backend drop เงียบๆ
+    alt ESP online ตอนลบ
+      M->>E: deliver wipe
+      E->>E: LittleFS.remove("/id.txt")
+      E->>E: ESP.restart()
+      Note over E: boot → loadDeviceId() ว่าง<br/>→ pairing mode
+      E->>M: publish pair/hello {mac,model,fw}
+      M->>B: deliver hello
+      B->>D: upsert PairingSession (โผล่บน UI)
+    else ESP offline ตอนลบ
+      Note over E: ESP รับ wipe ไม่ทัน
+      Note over E: ... time passes ...
+      E->>M: reconnect + publish dev/{id}/hb<br/>(id ที่ถูกลบ)
+      M->>B: deliver hb
+      B->>D: findById(id) → null
+      Note over B: debounce 60s ต่อ id<br/>กัน log spam
+      B->>M: publish dev/{id}/wipe '1' (recovery)
+      M->>E: deliver wipe
+      E->>E: wipeAndRestart → re-pair
+    end
   end
 ```
+
+**Non-retained wipe ตั้งใจ:** retained จะทำให้ ESP ที่ re-pair กลับมา (ID เดิม เพราะ MAC เดิม) subscribe `dev/{id}/wipe` แล้วได้ retained wipe → wipe ซ้ำ → infinite loop
 
 ## 6. Device state machine
 
@@ -219,11 +241,13 @@ stateDiagram-v2
   Offline --> OnlineOn: heartbeat or ack (isOn=true)
   Offline --> OnlineOff: heartbeat or ack (isOn=false)
 
-  Offline --> [*]: removeDevice
-  OnlineOn --> [*]: removeDevice
-  OnlineOff --> [*]: removeDevice
-  Unpaired --> [*]: PairingSession TTL 3600s
+  Offline --> Unpaired: removeDevice → wipe → ESP re-pair
+  OnlineOn --> Unpaired: removeDevice → wipe → ESP re-pair
+  OnlineOff --> Unpaired: removeDevice → wipe → ESP re-pair
+  Unpaired --> [*]: PairingSession TTL 3600s<br/>(user ไม่ claim ภายใน 1 ชม.)
 ```
+
+**ลบไม่ใช่ terminal:** ตั้งแต่เพิ่ม `dev/{id}/wipe` ESP จะวนกลับเข้า `Unpaired` อัตโนมัติ (boot ใหม่ → publish hello) — เปลี่ยน "ลบแล้วต้อง flash ESP เอง" เป็น "ลบแล้วโผล่ pairing tab ทันที"
 
 **ในมุม UI:**
 - `Unpaired` → tab **Pairing**, card ลอย + ปุ่ม Claim

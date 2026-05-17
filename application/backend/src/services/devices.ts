@@ -79,6 +79,10 @@ export const removeDevice = async (id: string) => {
   mqtt.clearDeviceLwt(id).catch((err) => {
     logger.warn({ err, deviceId: id }, 'mqtt clearDeviceLwt failed')
   })
+  // บอก ESP ที่ยัง pair อยู่ให้ลืม id แล้ว boot เข้า pairing mode ใหม่
+  mqtt.publishWipe(id).catch((err) => {
+    logger.warn({ err, deviceId: id }, 'mqtt publishWipe failed')
+  })
 }
 
 export const toggleDevice = async (id: string, outputId: OutputId) => {
@@ -278,6 +282,11 @@ export const handleCmdTimeout = async (
   }
 }
 
+// debounce wipe publishes ต่อ device id — กัน log spam ตอน ESP ที่ลบไปแล้ว
+// hb เข้ามาทุก 30s ก่อนที่ ESP จะรับ wipe สำเร็จ
+const WIPE_DEBOUNCE_MS = 60_000
+const recentWipes = new Map<string, number>()
+
 export const handleHeartbeat = async (
   deviceId: string,
   payload: {
@@ -287,7 +296,20 @@ export const handleHeartbeat = async (
   },
 ) => {
   const doc = await Device.findById(deviceId)
-  if (!doc) return
+  if (!doc) {
+    // hb จาก id ที่ไม่อยู่ DB — ESP ค้าง LittleFS หลัง backend ลบ (หรือ DB reset)
+    // ส่ง wipe กลับเพื่อให้ ESP re-pair
+    const now = Date.now()
+    const last = recentWipes.get(deviceId) ?? 0
+    if (now - last >= WIPE_DEBOUNCE_MS) {
+      recentWipes.set(deviceId, now)
+      logger.info({ deviceId }, 'hb from unknown id — publishing wipe')
+      mqtt.publishWipe(deviceId).catch((err) => {
+        logger.warn({ err, deviceId }, 'mqtt publishWipe (unknown id) failed')
+      })
+    }
+    return
+  }
   const wasOnline = doc.state.isOnline
   doc.state.isOnline = true
   doc.state.lastSeenAt = new Date()

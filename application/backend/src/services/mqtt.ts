@@ -193,6 +193,19 @@ export const clearPairAck = async (mac: string): Promise<void> => {
   })
 }
 
+// บอก ESP ที่ pair อยู่ให้ลืม device id แล้ว boot เข้า pairing mode ใหม่
+// ใช้กรณี: (1) backend ลบ device, (2) backend รับ hb จาก id ที่ไม่มีใน DB
+// non-retained — เลี่ยง infinite wipe loop ตอน ESP re-pair กลับมา ID เดิม
+export const publishWipe = async (deviceId: string): Promise<void> => {
+  if (!client?.connected) return
+  await new Promise<void>((resolve, reject) => {
+    client!.publish(`dev/${deviceId}/wipe`, '1', { qos: 1 }, (err) => {
+      if (err) reject(err)
+      else resolve()
+    })
+  })
+}
+
 export const clearDeviceLwt = async (deviceId: string): Promise<void> => {
   if (!client?.connected) return
   await new Promise<void>((resolve, reject) => {

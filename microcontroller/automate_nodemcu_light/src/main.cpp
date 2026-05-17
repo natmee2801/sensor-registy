@@ -76,6 +76,7 @@ String cmdTopic;     // dev/{id}/cmd
 String ackTopic;     // dev/{id}/ack
 String hbTopic;      // dev/{id}/hb
 String lwtTopic;     // dev/{id}/lwt
+String wipeTopic;    // dev/{id}/wipe — backend สั่งให้ลืม id แล้ว re-pair
 String pairAckTopic; // pair/ack/{mac}
 
 bool lightOn[OUTPUT_COUNT] = {false, false};
@@ -137,6 +138,18 @@ void buildTopics()
   ackTopic = String("dev/") + deviceId + "/ack";
   hbTopic = String("dev/") + deviceId + "/hb";
   lwtTopic = String("dev/") + deviceId + "/lwt";
+  wipeTopic = String("dev/") + deviceId + "/wipe";
+}
+
+void wipeAndRestart(const char *reason)
+{
+  Serial.printf("[wipe] reason=%s — clearing id.txt + restart\n", reason);
+  if (LittleFS.exists(ID_FILE))
+  {
+    LittleFS.remove(ID_FILE);
+  }
+  delay(500);
+  ESP.restart();
 }
 
 void publishHeartbeat()
@@ -292,6 +305,12 @@ void onMqttMessage(char *topic, byte *payload, unsigned int len)
     return;
   }
 
+  if (wipeTopic.length() > 0 && wipeTopic.equals(topic))
+  {
+    wipeAndRestart("backend wipe signal");
+    return;
+  }
+
   if (cmdTopic.length() > 0 && cmdTopic.equals(topic))
   {
     JsonDocument doc;
@@ -352,7 +371,9 @@ bool mqttReconnect()
   if (deviceId.length() > 0)
   {
     mqtt.subscribe(cmdTopic.c_str(), 1);
-    Serial.printf("[mqtt] subscribed %s\n", cmdTopic.c_str());
+    mqtt.subscribe(wipeTopic.c_str(), 1);
+    Serial.printf("[mqtt] subscribed %s + %s\n",
+                  cmdTopic.c_str(), wipeTopic.c_str());
     publishHeartbeat();
   }
   else
