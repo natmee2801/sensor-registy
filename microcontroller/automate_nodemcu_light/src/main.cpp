@@ -4,6 +4,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <SoftwareSerial.h>
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -44,8 +45,37 @@ static const uint8_t OUTPUT_ACTIVE_LOW[OUTPUT_COUNT] = {ACTIVE_LOW_OUT1, ACTIVE_
 static const unsigned long HELLO_INTERVAL_MS = 5000;
 static const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
 
+// VC-02-Kit voice module (UART, bidirectional)
+// ESP RX  D7 (GPIO13) ◄── VC-02 TX  — รับ command bytes
+// ESP TX  D5 (GPIO14) ──► VC-02 RX  — ส่งคำสั่งกลับ (เผื่อใช้ในอนาคต)
+#define VC02_RX_PIN D7
+#define VC02_TX_PIN D5
+#define VC02_BAUD 115200
+#define LISTENING_TIMEOUT_MS 10000UL
+
+// VC-02 5-byte protocol: [0x5a, cmd, 0x00, 0x00, checksum]
+// checksum = (byte0 + byte1 + byte2 + byte3) & 0xff
+#define VC02_HEADER 0x5a
+#define VC02_CMD_WAKE 0x00     // "hey pudding" / "hello pudding"
+#define VC02_CMD_EXIT 0x01     // "goodbye" / "see you"
+#define VC02_CMD_TURN_ON 0x27  // "turn on the light"   — เปิดดวง 1 (out1)
+#define VC02_CMD_TURN_OFF 0x28 // "turn off the light"  — ปิดหมด (both off)
+#define VC02_CMD_COLD_ON 0x29  // "cold light turn on"  — out1 ON
+#define VC02_CMD_COLD_OFF 0x2a // "cold light turn off" — out1 OFF
+#define VC02_CMD_WARM_ON 0x2b  // "warm light turn on"  — เปิด 2 ดวง (both on)
+#define VC02_CMD_WARM_OFF 0x2c // "warm light turn off" — out2 OFF (ปิด 1 ดวง = out2)
+
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
+SoftwareSerial vcSerial;
+
+enum VoiceState
+{
+  VS_IDLE,
+  VS_LISTENING
+};
+VoiceState voiceState = VS_IDLE;
+unsigned long listeningStartMs = 0;
 
 String deviceId;     // empty if not paired
 String macClean;     // AA:BB:CC:DD:EE:FF (uppercase)
@@ -161,6 +191,129 @@ void publishAck(const String &cmdId, const char *output, const char *status, boo
   char buf[160];
   size_t n = serializeJson(doc, buf, sizeof(buf));
   mqtt.publish(ackTopic.c_str(), (const uint8_t *)buf, n, false);
+}
+
+// แยก apply กับ publish เพื่อให้คำสั่ง multi-output (WARM_ON, TURN_OFF, WARM_OFF)
+// publish hb แค่ครั้งเดียวต่อคำสั่ง — ไม่ใช่ 1 hb ต่อ output
+bool applyLight(int outputIdx, bool desiredOn)
+{
+  if (outputIdx < 0 || outputIdx >= OUTPUT_COUNT)
+    return false;
+  if (lightOn[outputIdx] == desiredOn)
+    return false; // idempotent
+  setLight(outputIdx, desiredOn);
+  Serial.printf("[voice] applied output=%s isOn=%d\n",
+                OUTPUT_NAMES[outputIdx], desiredOn ? 1 : 0);
+  return true;
+}
+
+void publishVoiceUpdate(bool changed)
+{
+  if (!changed)
+    return;
+  publishHeartbeat();  // backend handleHeartbeat → hb_sync (per output) → SSE
+  lastHbMs = millis(); // กัน double publish ในรอบเดียว
+}
+
+void handleVoiceCommand(uint8_t cmd)
+{
+  Serial.printf("[vc02] cmd=0x%02x state=%s\n", cmd,
+                voiceState == VS_LISTENING ? "LISTENING" : "IDLE");
+
+  switch (cmd)
+  {
+  case VC02_CMD_WAKE:
+    Serial.println("[vc02] WAKE — entering LISTENING");
+    voiceState = VS_LISTENING;
+    listeningStartMs = millis();
+    return;
+  case VC02_CMD_EXIT:
+    Serial.println("[vc02] EXIT — back to IDLE");
+    voiceState = VS_IDLE;
+    return;
+  }
+
+  // strict 10s window จาก wake — ไม่ refresh timer ตอนรับคำสั่ง control
+  if (voiceState != VS_LISTENING)
+  {
+    Serial.printf("[vc02] ignored cmd=0x%02x — not in listening mode\n", cmd);
+    return;
+  }
+  if (millis() - listeningStartMs > LISTENING_TIMEOUT_MS)
+  {
+    Serial.printf("[vc02] ignored cmd=0x%02x — listening window expired\n", cmd);
+    voiceState = VS_IDLE;
+    return;
+  }
+
+  // refresh listening window — ทุกคำสั่ง valid จะ extend session อีก 10s
+  // (inactivity-based แทน fixed-from-wake) เพื่อให้ chain คำสั่งได้
+  listeningStartMs = millis();
+
+  bool a, b;
+  switch (cmd)
+  {
+  case VC02_CMD_TURN_ON: // เปิดดวง 1 (cold)
+  case VC02_CMD_COLD_ON: // alias
+    publishVoiceUpdate(applyLight(0, true));
+    break;
+  case VC02_CMD_COLD_OFF: // ปิดเฉพาะดวง 1 (cold)
+    publishVoiceUpdate(applyLight(0, false));
+    break;
+  case VC02_CMD_WARM_OFF: // ปิดเฉพาะดวง 2 (warm)
+    publishVoiceUpdate(applyLight(1, false));
+    break;
+  case VC02_CMD_TURN_OFF: // ปิดหมด — only TurnOff เป็น kill-all
+    a = applyLight(0, false);
+    b = applyLight(1, false);
+    publishVoiceUpdate(a || b);
+    break;
+  case VC02_CMD_WARM_ON: // เปิด 2 ดวง
+    a = applyLight(0, true);
+    b = applyLight(1, true);
+    publishVoiceUpdate(a || b);
+    break;
+  default:
+    Serial.printf("[vc02] unknown cmd=0x%02x\n", cmd);
+    break;
+  }
+}
+
+void pollVc02()
+{
+  static uint8_t vcBuf[5];
+  static uint8_t vcBufLen = 0;
+
+  while (vcSerial.available() > 0)
+  {
+    uint8_t b = (uint8_t)vcSerial.read();
+    // resync — ถ้า buffer ว่างแต่ byte แรกไม่ใช่ header ก็ทิ้ง
+    if (vcBufLen == 0 && b != VC02_HEADER)
+      continue;
+    vcBuf[vcBufLen++] = b;
+    if (vcBufLen < 5)
+      continue;
+
+    uint16_t expected = (uint16_t)vcBuf[0] + vcBuf[1] + vcBuf[2] + vcBuf[3];
+    if ((expected & 0xff) == vcBuf[4])
+    {
+      handleVoiceCommand(vcBuf[1]);
+    }
+    else
+    {
+      Serial.printf("[vc02] checksum fail %02x %02x %02x %02x %02x\n",
+                    vcBuf[0], vcBuf[1], vcBuf[2], vcBuf[3], vcBuf[4]);
+    }
+    vcBufLen = 0;
+  }
+
+  // listening window timeout
+  if (voiceState == VS_LISTENING &&
+      millis() - listeningStartMs > LISTENING_TIMEOUT_MS)
+  {
+    Serial.println("[vc02] listening timeout — back to IDLE");
+    voiceState = VS_IDLE;
+  }
 }
 
 void onMqttMessage(char *topic, byte *payload, unsigned int len)
@@ -331,6 +484,17 @@ void setup()
   mqtt.setCallback(onMqttMessage);
   mqtt.setBufferSize(512);
   mqtt.setKeepAlive(60);
+
+  vcSerial.begin(VC02_BAUD, SWSERIAL_8N1, VC02_RX_PIN, VC02_TX_PIN, false);
+  if (!vcSerial)
+  {
+    Serial.println("[vc02] SoftwareSerial init failed");
+  }
+  else
+  {
+    Serial.printf("[vc02] listening on D%d @ %lu baud\n",
+                  VC02_RX_PIN, (unsigned long)VC02_BAUD);
+  }
 }
 
 void loop()
@@ -347,6 +511,7 @@ void loop()
     }
   }
   mqtt.loop();
+  pollVc02();
 
   unsigned long now = millis();
 
