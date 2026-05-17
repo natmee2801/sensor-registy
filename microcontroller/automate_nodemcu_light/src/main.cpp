@@ -16,11 +16,30 @@
 #define MQTT_PORT 1883
 #endif
 
-// NodeMCU built-in LED on GPIO2 is active-low (LOW = on)
-#define LIGHT_PIN LED_BUILTIN
-#define FW_VERSION "1.0.0"
-#define MODEL_NAME "nodemcu_light"
+// 2-output lighting: out1 on built-in LED (active-low), out2 on D2 (active-high)
+#ifndef LIGHT_PIN_OUT1
+#define LIGHT_PIN_OUT1 LED_BUILTIN
+#endif
+#ifndef LIGHT_PIN_OUT2
+#define LIGHT_PIN_OUT2 D2
+#endif
+// out1 is the built-in LED on NodeMCU which is active-LOW
+// out2 is a generic GPIO; configure ACTIVE_LOW_OUT2 if your relay is also active-low
+#ifndef ACTIVE_LOW_OUT1
+#define ACTIVE_LOW_OUT1 1
+#endif
+#ifndef ACTIVE_LOW_OUT2
+#define ACTIVE_LOW_OUT2 0
+#endif
+
+#define FW_VERSION "2.0.0"
+#define MODEL_NAME "nodemcu_light_2ch"
 #define ID_FILE "/id.txt"
+#define OUTPUT_COUNT 2
+
+static const char *OUTPUT_NAMES[OUTPUT_COUNT] = {"out1", "out2"};
+static const uint8_t OUTPUT_PINS[OUTPUT_COUNT] = {LIGHT_PIN_OUT1, LIGHT_PIN_OUT2};
+static const uint8_t OUTPUT_ACTIVE_LOW[OUTPUT_COUNT] = {ACTIVE_LOW_OUT1, ACTIVE_LOW_OUT2};
 
 static const unsigned long HELLO_INTERVAL_MS = 5000;
 static const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
@@ -36,14 +55,29 @@ String hbTopic;      // dev/{id}/hb
 String lwtTopic;     // dev/{id}/lwt
 String pairAckTopic; // pair/ack/{mac}
 
-bool lightOn = false;
+bool lightOn[OUTPUT_COUNT] = {false, false};
 unsigned long lastHelloMs = 0;
 unsigned long lastHbMs = 0;
 
-void setLight(bool on)
+int outputIndexFromName(const char *name)
 {
-  lightOn = on;
-  digitalWrite(LIGHT_PIN, on ? LOW : HIGH);
+  if (!name)
+    return -1;
+  for (int i = 0; i < OUTPUT_COUNT; i++)
+  {
+    if (strcmp(name, OUTPUT_NAMES[i]) == 0)
+      return i;
+  }
+  return -1;
+}
+
+void setLight(int idx, bool on)
+{
+  if (idx < 0 || idx >= OUTPUT_COUNT)
+    return;
+  lightOn[idx] = on;
+  uint8_t level = OUTPUT_ACTIVE_LOW[idx] ? (on ? LOW : HIGH) : (on ? HIGH : LOW);
+  digitalWrite(OUTPUT_PINS[idx], level);
 }
 
 String loadDeviceId()
@@ -87,10 +121,15 @@ void publishHeartbeat()
   if (deviceId.length() == 0 || !mqtt.connected())
     return;
   JsonDocument doc;
-  doc["isOn"] = lightOn;
+  JsonObject outs = doc["outputs"].to<JsonObject>();
+  for (int i = 0; i < OUTPUT_COUNT; i++)
+  {
+    JsonObject o = outs[OUTPUT_NAMES[i]].to<JsonObject>();
+    o["isOn"] = lightOn[i];
+  }
   doc["rssi"] = WiFi.RSSI();
   doc["uptime"] = millis() / 1000;
-  char buf[128];
+  char buf[192];
   size_t n = serializeJson(doc, buf, sizeof(buf));
   bool ok = mqtt.publish(hbTopic.c_str(), (const uint8_t *)buf, n, true);
   Serial.printf("[mqtt] hb publish=%s rssi=%d\n", ok ? "ok" : "fail", WiFi.RSSI());
@@ -110,15 +149,16 @@ void publishHello()
   Serial.printf("[mqtt] hello publish=%s\n", ok ? "ok" : "fail");
 }
 
-void publishAck(const String &cmdId, const char *status)
+void publishAck(const String &cmdId, const char *output, const char *status, bool isOn)
 {
   if (!mqtt.connected())
     return;
   JsonDocument doc;
   doc["cmdId"] = cmdId;
   doc["status"] = status;
-  doc["isOn"] = lightOn;
-  char buf[128];
+  doc["output"] = output;
+  doc["isOn"] = isOn;
+  char buf[160];
   size_t n = serializeJson(doc, buf, sizeof(buf));
   mqtt.publish(ackTopic.c_str(), (const uint8_t *)buf, n, false);
 }
@@ -151,11 +191,21 @@ void onMqttMessage(char *topic, byte *payload, unsigned int len)
       return;
     }
     const char *cmdId = doc["cmd_id"] | (const char *)nullptr;
+    const char *output = doc["output"] | (const char *)nullptr;
     bool desiredOn = doc["isOn"] | false;
-    if (!cmdId)
+    if (!cmdId || !output)
+    {
+      Serial.println("[cmd] missing cmd_id or output");
       return;
-    setLight(desiredOn);
-    publishAck(String(cmdId), "applied");
+    }
+    int idx = outputIndexFromName(output);
+    if (idx < 0)
+    {
+      Serial.printf("[cmd] unknown output=%s\n", output);
+      return;
+    }
+    setLight(idx, desiredOn);
+    publishAck(String(cmdId), output, "applied", lightOn[idx]);
   }
 }
 
@@ -204,16 +254,6 @@ bool mqttReconnect()
   return true;
 }
 
-void ledStatus()
-{
-  digitalWrite(LED_BUILTIN, HIGH);
-  // Serial.println("[led] off");
-  delay(1000);
-  digitalWrite(LED_BUILTIN, LOW);
-  // Serial.println("[led] on");
-  delay(1000);
-}
-
 void connectWifi()
 {
 #ifdef WIFI_SSID
@@ -257,12 +297,15 @@ void setup()
   Serial.begin(115200);
   delay(5000);
 
-  Serial.println("\n[boot] sensor-registry light");
+  Serial.println("\n[boot] sensor-registry light 2ch");
   Serial.printf("[boot] reset reason: %s\n", ESP.getResetReason().c_str());
   Serial.printf("[boot] free heap: %u\n", ESP.getFreeHeap());
 
-  pinMode(LIGHT_PIN, OUTPUT);
-  setLight(false);
+  for (int i = 0; i < OUTPUT_COUNT; i++)
+  {
+    pinMode(OUTPUT_PINS[i], OUTPUT);
+    setLight(i, false);
+  }
 
   if (!LittleFS.begin())
   {
@@ -292,7 +335,6 @@ void setup()
 
 void loop()
 {
-  // ledStatus();
   if (WiFi.status() != WL_CONNECTED) {
     delay(500);
     return;

@@ -2,12 +2,16 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import * as api from '@/services/api'
 import { ApiError } from '@/services/api'
-import type {
-  ControlMode,
-  Device,
-  DeviceLog,
-  DeviceState,
-  PairingSession,
+import {
+  OUTPUT_IDS,
+  type BrightnessLevel,
+  type ControlMode,
+  type Device,
+  type DeviceLog,
+  type DeviceState,
+  type OutputId,
+  type OutputState,
+  type PairingSession,
 } from '@/types/device'
 
 const LOCATION_MAX = 80
@@ -42,6 +46,26 @@ export const useDevicesStore = defineStore('devices', () => {
   const hasDevice = (id: string) => Object.prototype.hasOwnProperty.call(devices.value, id)
   const getDevice = (id: string): Device | null => devices.value[id] ?? null
   const getState = (id: string): DeviceState | null => devices.value[id]?.state ?? null
+  const getOutput = (id: string, outputId: OutputId): OutputState | null =>
+    devices.value[id]?.state.outputs[outputId] ?? null
+
+  const onCount = (id: string): { on: number; total: number } => {
+    const state = devices.value[id]?.state
+    if (!state) return { on: 0, total: OUTPUT_IDS.length }
+    let on = 0
+    for (const o of OUTPUT_IDS) if (state.outputs[o].isOn) on++
+    return { on, total: OUTPUT_IDS.length }
+  }
+  const anyOn = (id: string) => onCount(id).on > 0
+  const allOn = (id: string) => {
+    const c = onCount(id)
+    return c.on === c.total
+  }
+  const allAuto = (id: string): boolean => {
+    const state = devices.value[id]?.state
+    if (!state) return false
+    return OUTPUT_IDS.every((o) => state.outputs[o].controlMode === 'auto')
+  }
 
   const searchDevices = (query: string): Device[] => {
     const trimmed = query.trim().toLowerCase()
@@ -154,34 +178,167 @@ export const useDevicesStore = defineStore('devices', () => {
     removeFromState(id)
   }
 
-  const toggleDevice = async (id: string) => {
-    const device = await api.toggleDevice(id)
+  const toggleOutput = async (id: string, outputId: OutputId) => {
+    const device = await api.toggleOutput(id, outputId)
     upsertDevice(device)
   }
 
-  const setMode = async (id: string, mode: ControlMode) => {
-    const device = await api.setMode(id, mode)
+  const toggleAll = async (id: string, isOn: boolean) => {
+    const device = await api.toggleAll(id, isOn)
     upsertDevice(device)
   }
 
-  const setAutoTimes = async (id: string, autoOnTime: string, autoOffTime: string) => {
-    const device = await api.setAutoTimes(id, autoOnTime, autoOffTime)
+  const setMode = async (id: string, outputId: OutputId, mode: ControlMode) => {
+    const device = await api.setMode(id, outputId, mode)
     upsertDevice(device)
   }
 
-  const startOffTimer = async (id: string, durationMs: number) => {
-    const device = await api.startOffTimer(id, durationMs)
+  const setAutoTimes = async (
+    id: string,
+    outputId: OutputId,
+    autoOnTime: string,
+    autoOffTime: string,
+  ) => {
+    const device = await api.setAutoTimes(id, outputId, autoOnTime, autoOffTime)
     upsertDevice(device)
   }
 
-  const cancelOffTimer = async (id: string) => {
-    const device = await api.cancelOffTimer(id)
+  const startOffTimer = async (id: string, outputId: OutputId, durationMs: number) => {
+    const device = await api.startOffTimer(id, outputId, durationMs)
     upsertDevice(device)
+  }
+
+  const cancelOffTimer = async (id: string, outputId: OutputId) => {
+    const device = await api.cancelOffTimer(id, outputId)
+    upsertDevice(device)
+  }
+
+  const getBrightness = (id: string): BrightnessLevel => {
+    const s = devices.value[id]?.state
+    if (!s) return 'off'
+    const o1 = s.outputs.out1.isOn
+    const o2 = s.outputs.out2.isOn
+    if (!o1 && !o2) return 'off'
+    if (o1 && o2) return 'high'
+    return 'low'
+  }
+
+  const getDeviceMode = (id: string): ControlMode => {
+    const s = devices.value[id]?.state
+    if (!s) return 'manual'
+    return OUTPUT_IDS.some((o) => s.outputs[o].controlMode === 'auto') ? 'auto' : 'manual'
+  }
+
+  const getDeviceAutoTimes = (
+    id: string,
+  ): { autoOnTime: string; autoOffTime: string; level: Exclude<BrightnessLevel, 'off'> } | null => {
+    const s = devices.value[id]?.state
+    if (!s) return null
+    const o1 = s.outputs.out1
+    const o2 = s.outputs.out2
+    if (o1.controlMode !== 'auto' && o2.controlMode !== 'auto') return null
+    const src = o1.controlMode === 'auto' ? o1 : o2
+    const level: 'low' | 'high' =
+      o1.controlMode === 'auto' &&
+      o2.controlMode === 'auto' &&
+      o1.autoOnTime === o2.autoOnTime &&
+      o1.autoOffTime === o2.autoOffTime
+        ? 'high'
+        : 'low'
+    return { autoOnTime: src.autoOnTime, autoOffTime: src.autoOffTime, level }
+  }
+
+  const getDeviceOffTimer = (id: string): Date | null => {
+    const s = devices.value[id]?.state
+    if (!s) return null
+    const ends = OUTPUT_IDS.map((o) => s.outputs[o].offTimerEndsAt).filter(
+      (v): v is string => !!v,
+    )
+    if (ends.length === 0) return null
+    return new Date(Math.max(...ends.map((v) => new Date(v).getTime())))
+  }
+
+  const setBrightness = async (id: string, level: BrightnessLevel) => {
+    const s = devices.value[id]?.state
+    if (!s) return
+    for (const o of OUTPUT_IDS) {
+      if (s.outputs[o].offTimerEndsAt) await cancelOffTimer(id, o)
+    }
+    const o1 = devices.value[id]?.state.outputs.out1.isOn ?? false
+    const o2 = devices.value[id]?.state.outputs.out2.isOn ?? false
+    if (level === 'off') {
+      if (o1 || o2) await toggleAll(id, false)
+      return
+    }
+    if (level === 'high') {
+      if (!o1 && !o2) {
+        await toggleAll(id, true)
+        return
+      }
+      if (!o1) await toggleOutput(id, 'out1')
+      if (!devices.value[id]?.state.outputs.out2.isOn) await toggleOutput(id, 'out2')
+      return
+    }
+    // low — canonical: out1 on, out2 off
+    if (o2) await toggleOutput(id, 'out2')
+    if (!devices.value[id]?.state.outputs.out1.isOn) await toggleOutput(id, 'out1')
+  }
+
+  const setManualMode = async (id: string) => {
+    for (const o of OUTPUT_IDS) {
+      if (devices.value[id]?.state.outputs[o].controlMode !== 'manual') {
+        await setMode(id, o, 'manual')
+      }
+    }
+  }
+
+  const setAutoBrightness = async (
+    id: string,
+    level: 'low' | 'high',
+    autoOnTime: string,
+    autoOffTime: string,
+  ) => {
+    for (const o of OUTPUT_IDS) {
+      if (devices.value[id]?.state.outputs[o].offTimerEndsAt) await cancelOffTimer(id, o)
+    }
+    if (level === 'low') {
+      if (devices.value[id]?.state.outputs.out2.controlMode !== 'manual') {
+        await setMode(id, 'out2', 'manual')
+      }
+      if (devices.value[id]?.state.outputs.out2.isOn) {
+        await toggleOutput(id, 'out2')
+      }
+      await setAutoTimes(id, 'out1', autoOnTime, autoOffTime)
+      await setMode(id, 'out1', 'auto')
+      return
+    }
+    await setAutoTimes(id, 'out1', autoOnTime, autoOffTime)
+    await setAutoTimes(id, 'out2', autoOnTime, autoOffTime)
+    await setMode(id, 'out1', 'auto')
+    await setMode(id, 'out2', 'auto')
+  }
+
+  const startBrightnessTimer = async (id: string, durationMs: number) => {
+    const s = devices.value[id]?.state
+    if (!s) return
+    for (const o of OUTPUT_IDS) {
+      if (s.outputs[o].isOn && s.outputs[o].controlMode === 'manual') {
+        await startOffTimer(id, o, durationMs)
+      }
+    }
+  }
+
+  const cancelBrightnessTimer = async (id: string) => {
+    const s = devices.value[id]?.state
+    if (!s) return
+    for (const o of OUTPUT_IDS) {
+      if (s.outputs[o].offTimerEndsAt) await cancelOffTimer(id, o)
+    }
   }
 
   const fetchLogs = async (
     id: string,
-    opts?: { limit?: number; before?: string },
+    opts?: { limit?: number; before?: string; output?: OutputId },
   ): Promise<{ items: DeviceLog[]; nextCursor: string | null }> => {
     return api.getLogs(id, opts)
   }
@@ -221,17 +378,32 @@ export const useDevicesStore = defineStore('devices', () => {
     hasDevice,
     getDevice,
     getState,
+    getOutput,
+    onCount,
+    anyOn,
+    allOn,
+    allAuto,
     searchDevices,
     refreshAll,
     refreshDevice,
     fetchUnclaimed,
     claimDevice,
     removeDevice,
-    toggleDevice,
+    toggleOutput,
+    toggleAll,
     setMode,
     setAutoTimes,
     startOffTimer,
     cancelOffTimer,
+    getBrightness,
+    getDeviceMode,
+    getDeviceAutoTimes,
+    getDeviceOffTimer,
+    setBrightness,
+    setManualMode,
+    setAutoBrightness,
+    startBrightnessTimer,
+    cancelBrightnessTimer,
     fetchLogs,
     subscribeEvents,
     unsubscribeEvents,

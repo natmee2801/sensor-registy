@@ -2,6 +2,11 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
+import {
+  BRIGHTNESS_LABELS,
+  BRIGHTNESS_LEVELS,
+  type BrightnessLevel,
+} from '@/types/device'
 import BulbVisual from '@/components/BulbVisual.vue'
 
 const props = defineProps<{ deviceId: string }>()
@@ -11,22 +16,23 @@ const store = useDevicesStore()
 const { states } = storeToRefs(store)
 
 const state = computed(() => states.value[props.deviceId])
-const isOn = computed(() => state.value?.isOn ?? false)
 const isOnline = computed(() => state.value?.isOnline ?? false)
-const controlMode = computed(() => state.value?.controlMode ?? 'manual')
-const autoOnTime = computed({
-  get: () => state.value?.autoOnTime ?? '18:00',
-  set: (value) => {
-    if (!state.value) return
-    store.setAutoTimes(props.deviceId, value, state.value.autoOffTime).catch(() => {})
-  },
-})
-const autoOffTime = computed({
-  get: () => state.value?.autoOffTime ?? '23:00',
-  set: (value) => {
-    if (!state.value) return
-    store.setAutoTimes(props.deviceId, state.value.autoOnTime, value).catch(() => {})
-  },
+const brightness = computed<BrightnessLevel>(() => store.getBrightness(props.deviceId))
+const deviceMode = computed(() => store.getDeviceMode(props.deviceId))
+const autoCfg = computed(() => store.getDeviceAutoTimes(props.deviceId))
+const timerEndsAt = computed(() => store.getDeviceOffTimer(props.deviceId))
+const anyOn = computed(() => brightness.value !== 'off')
+
+const draftLevel = ref<'low' | 'high'>(autoCfg.value?.level ?? 'high')
+const draftOn = ref<string>(autoCfg.value?.autoOnTime ?? '18:00')
+const draftOff = ref<string>(autoCfg.value?.autoOffTime ?? '23:00')
+
+watch(autoCfg, (cfg) => {
+  if (cfg) {
+    draftLevel.value = cfg.level
+    draftOn.value = cfg.autoOnTime
+    draftOff.value = cfg.autoOffTime
+  }
 })
 
 const timerPresets = [
@@ -47,14 +53,14 @@ const stopInterval = () => {
 }
 
 watch(
-  () => state.value?.offTimerEndsAt ?? null,
-  (endsAt) => {
-    if (endsAt !== null && nowInterval === null) {
+  () => timerEndsAt.value !== null,
+  (active) => {
+    if (active && nowInterval === null) {
       now.value = Date.now()
       nowInterval = setInterval(() => {
         now.value = Date.now()
       }, 1000)
-    } else if (endsAt === null) {
+    } else if (!active) {
       stopInterval()
     }
   },
@@ -63,13 +69,11 @@ watch(
 
 onUnmounted(stopInterval)
 
-const timerEndMs = computed(() =>
-  state.value?.offTimerEndsAt ? new Date(state.value.offTimerEndsAt).getTime() : null,
-)
-const remainingMs = computed(() =>
-  timerEndMs.value === null ? 0 : Math.max(0, timerEndMs.value - now.value),
-)
-const timerActive = computed(() => timerEndMs.value !== null && remainingMs.value > 0)
+const remainingMs = computed(() => {
+  const end = timerEndsAt.value
+  return end === null ? 0 : Math.max(0, end.getTime() - now.value)
+})
+const timerActive = computed(() => timerEndsAt.value !== null && remainingMs.value > 0)
 
 const formatRemaining = (ms: number) => {
   const totalSec = Math.ceil(ms / 1000)
@@ -78,29 +82,36 @@ const formatRemaining = (ms: number) => {
   return `${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`
 }
 
-const handleStartTimer = (minutes: number) => {
-  store.startOffTimer(props.deviceId, minutes * 60 * 1000).catch(() => {})
-}
-
-const handleCancelTimer = () => {
-  store.cancelOffTimer(props.deviceId).catch(() => {})
-}
-
 const sameTimeWarning = computed(
-  () => controlMode.value === 'auto' && autoOnTime.value === autoOffTime.value,
+  () => deviceMode.value === 'auto' && draftOn.value === draftOff.value,
 )
 
-const handleModeChange = (event: Event) => {
-  const value = (event.target as HTMLInputElement).value
-  if (value === 'manual' || value === 'auto') {
-    store.setMode(props.deviceId, value).catch(() => {})
+const handleBrightness = (level: BrightnessLevel) => {
+  store.setBrightness(props.deviceId, level).catch(() => {})
+}
+
+const handleModeChange = (mode: 'manual' | 'auto') => {
+  if (mode === 'manual') {
+    store.setManualMode(props.deviceId).catch(() => {})
+  } else {
+    store
+      .setAutoBrightness(props.deviceId, draftLevel.value, draftOn.value, draftOff.value)
+      .catch(() => {})
   }
 }
 
-const formatThaiDateTime = (isoDate: string) =>
-  new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'medium' }).format(
-    new Date(isoDate),
-  )
+const handleScheduleChange = () => {
+  store
+    .setAutoBrightness(props.deviceId, draftLevel.value, draftOn.value, draftOff.value)
+    .catch(() => {})
+}
+
+const handleStartTimer = (minutes: number) => {
+  store.startBrightnessTimer(props.deviceId, minutes * 60 * 1000).catch(() => {})
+}
+const handleCancelTimer = () => {
+  store.cancelBrightnessTimer(props.deviceId).catch(() => {})
+}
 
 const handleRemove = async () => {
   if (!window.confirm(`ลบอุปกรณ์ ${props.deviceId}?`)) return
@@ -108,184 +119,139 @@ const handleRemove = async () => {
     await store.removeDevice(props.deviceId)
     emit('removed')
   } catch {
-    // store keeps device if delete fails; surface via lastError if needed
+    // ignore
   }
 }
-
 </script>
 
 <template>
   <div v-if="state" class="device-control">
-    <div class="light-status-card" :class="{ 'light-status-card--offline': !isOnline }">
-      <div class="card-head">
-        <h2 class="card-title">สถานะล่าสุด</h2>
-        <span
-          class="card-badge"
+    <section class="control-section">
+      <div class="brightness-head">
+        <p class="section-label">ระดับความสว่าง</p>
+        <BulbVisual :level="isOnline ? brightness : 'off'" size="md" />
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="ระดับความสว่าง">
+        <button
+          v-for="level in BRIGHTNESS_LEVELS"
+          :key="level"
+          type="button"
+          class="segmented__btn"
           :class="{
-            'card-badge--on': isOn && isOnline,
-            'card-badge--offline': !isOnline,
+            'segmented__btn--active': brightness === level,
+            [`segmented__btn--${level}`]: brightness === level,
           }"
+          :disabled="!isOnline || deviceMode === 'auto'"
+          @click="handleBrightness(level)"
         >
-          {{ !isOnline ? 'ออฟไลน์' : isOn ? 'กำลังทำงาน' : 'พักอยู่' }}
-        </span>
+          {{ BRIGHTNESS_LABELS[level] }}
+        </button>
       </div>
-      <div class="status-showcase">
-        <div class="status-stage" :class="{ 'status-stage--on': isOn && isOnline }">
-          <BulbVisual :on="isOn && isOnline" size="md" />
-        </div>
-        <div class="status-body">
-          <p class="status-label">
-            {{ isOnline ? 'สถานะปัจจุบัน' : 'สถานะล่าสุดที่บันทึก' }}
-          </p>
-          <p
-            class="status-headline"
-            :class="{
-              'status-headline--on': isOn && isOnline,
-              'status-headline--offline': !isOnline,
-            }"
-          >
-            {{ isOn ? 'เปิดอยู่' : 'ปิดอยู่' }}
-          </p>
-          <p v-if="state.lastUpdatedAt" class="updated-time">
-            อัปเดตล่าสุด · {{ formatThaiDateTime(state.lastUpdatedAt) }}
-          </p>
-          <p v-if="!isOnline && state.lastSeenAt" class="offline-time">
-            เห็นล่าสุด · {{ formatThaiDateTime(state.lastSeenAt) }}
-          </p>
-          <p v-else-if="!isOnline" class="offline-time">ยังไม่เคย heartbeat</p>
-        </div>
-      </div>
-    </div>
+      <p v-if="!isOnline" class="section-hint">อุปกรณ์ออฟไลน์ — สั่งงานไม่ได้</p>
+      <p v-else-if="deviceMode === 'auto'" class="section-hint">
+        โหมดอัตโนมัติกำลังควบคุมอยู่
+      </p>
+    </section>
 
-    <div class="light-control-card">
-      <h2 class="card-title card-title--solo">การควบคุม</h2>
-
-      <div class="segmented" role="radiogroup" aria-label="โหมดการทำงาน">
-        <label
-          class="segmented__option"
-          :class="{ 'segmented__option--active': controlMode === 'manual' }"
+    <section class="control-section">
+      <p class="section-label">โหมด</p>
+      <div class="segmented" role="radiogroup" aria-label="โหมด">
+        <button
+          type="button"
+          class="segmented__btn"
+          :class="{ 'segmented__btn--active': deviceMode === 'manual' }"
+          @click="handleModeChange('manual')"
         >
-          <input
-            class="segmented__input"
-            type="radio"
-            :checked="controlMode === 'manual'"
-            value="manual"
-            @change="handleModeChange"
-          />
-          <span class="segmented__label">ควบคุมเอง</span>
-        </label>
-        <label
-          class="segmented__option"
-          :class="{ 'segmented__option--active': controlMode === 'auto' }"
+          ควบคุมเอง
+        </button>
+        <button
+          type="button"
+          class="segmented__btn"
+          :class="{ 'segmented__btn--active': deviceMode === 'auto' }"
+          @click="handleModeChange('auto')"
         >
-          <input
-            class="segmented__input"
-            type="radio"
-            :checked="controlMode === 'auto'"
-            value="auto"
-            @change="handleModeChange"
-          />
-          <span class="segmented__label">ตั้งเวลาอัตโนมัติ</span>
-        </label>
+          อัตโนมัติ
+        </button>
       </div>
+    </section>
 
-      <div class="schedule-block" :class="{ 'schedule-block--disabled': controlMode !== 'auto' }">
-        <p class="schedule-hint">ใช้เมื่อเลือกโหมดตั้งเวลา — ระบบจะตรวจทุก ๆ 30 วินาที</p>
-        <div class="schedule-grid">
-          <label class="time-field">
-            <span class="time-field__label">เวลาเปิด</span>
-            <input
-              v-model="autoOnTime"
-              class="time-field__input"
-              type="time"
-              :disabled="controlMode !== 'auto'"
-            />
-          </label>
-          <label class="time-field">
-            <span class="time-field__label">เวลาปิด</span>
-            <input
-              v-model="autoOffTime"
-              class="time-field__input"
-              type="time"
-              :disabled="controlMode !== 'auto'"
-            />
-          </label>
-        </div>
-        <p v-if="sameTimeWarning" class="schedule-warning">
-          เวลาเปิดและเวลาปิดเหมือนกัน — ระบบจะไม่เปิดไฟอัตโนมัติ
-        </p>
+    <section v-if="deviceMode === 'auto'" class="control-section">
+      <p class="section-label">ตั้งเวลา</p>
+      <div class="schedule-row">
+        <input
+          v-model="draftOn"
+          class="time-input"
+          type="time"
+          aria-label="เวลาเปิด"
+          @change="handleScheduleChange"
+        />
+        <span class="schedule-dash">—</span>
+        <input
+          v-model="draftOff"
+          class="time-input"
+          type="time"
+          aria-label="เวลาปิด"
+          @change="handleScheduleChange"
+        />
       </div>
-
-      <button
-        type="button"
-        class="toggle-button"
-        :class="{ 'toggle-button--off': !isOn && controlMode !== 'auto' && isOnline }"
-        :disabled="controlMode === 'auto' || !isOnline"
-        @click="store.toggleDevice(deviceId)"
-      >
-        <span class="toggle-button__shine" aria-hidden="true" />
-        <span class="toggle-button__text">
-          {{
-            !isOnline
-              ? 'อุปกรณ์ออฟไลน์'
-              : controlMode === 'auto'
-                ? 'โหมดอัตโนมัติกำลังควบคุมอยู่'
-                : isOn
-                  ? 'ปิดหลอดไฟ'
-                  : 'เปิดหลอดไฟ'
-          }}
-        </span>
-      </button>
-    </div>
-
-    <div v-if="isOn && controlMode === 'manual'" class="light-timer-card">
-      <div class="card-head">
-        <h2 class="card-title">ตัวจับเวลาปิด</h2>
-        <span v-if="timerActive" class="card-badge card-badge--timer">
-          {{ formatRemaining(remainingMs) }}
-        </span>
+      <div class="segmented segmented--compact" role="radiogroup" aria-label="ระดับเมื่อเปิด">
+        <button
+          type="button"
+          class="segmented__btn"
+          :class="{
+            'segmented__btn--active': draftLevel === 'low',
+            'segmented__btn--low': draftLevel === 'low',
+          }"
+          @click="(draftLevel = 'low'), handleScheduleChange()"
+        >
+          หรี่
+        </button>
+        <button
+          type="button"
+          class="segmented__btn"
+          :class="{
+            'segmented__btn--active': draftLevel === 'high',
+            'segmented__btn--high': draftLevel === 'high',
+          }"
+          @click="(draftLevel = 'high'), handleScheduleChange()"
+        >
+          สว่าง
+        </button>
       </div>
+      <p v-if="sameTimeWarning" class="section-hint section-hint--warn">
+        เวลาเปิดและเวลาปิดเหมือนกัน — ระบบจะไม่ทำงาน
+      </p>
+    </section>
 
+    <section v-if="anyOn && deviceMode === 'manual'" class="control-section">
+      <p class="section-label">จับเวลาปิด</p>
       <div v-if="!timerActive" class="timer-presets">
         <button
           v-for="preset in timerPresets"
           :key="preset.label"
           type="button"
-          class="timer-preset"
+          class="chip"
           @click="handleStartTimer(preset.minutes)"
         >
           {{ preset.label }}
         </button>
       </div>
-
       <div v-else class="timer-active">
-        <div class="timer-display">
-          <span class="timer-display__value">{{ formatRemaining(remainingMs) }}</span>
-          <span class="timer-display__label">ก่อนปิดอัตโนมัติ</span>
-        </div>
-        <button type="button" class="timer-cancel" @click="handleCancelTimer">
-          ยกเลิกตัวจับเวลา
+        <span class="timer-value">{{ formatRemaining(remainingMs) }}</span>
+        <span class="timer-label">ก่อนปิด</span>
+        <button type="button" class="chip chip--cancel" @click="handleCancelTimer">
+          ยกเลิก
         </button>
       </div>
-    </div>
+    </section>
 
-    <button type="button" class="remove-button" @click="handleRemove">
-      ลบอุปกรณ์นี้
-    </button>
+    <button type="button" class="remove-link" @click="handleRemove">ลบอุปกรณ์</button>
   </div>
 </template>
 
 <style scoped>
 .device-control {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.light-status-card,
-.light-control-card,
-.light-timer-card {
-  padding: 1.15rem 1.2rem;
+  padding: 1.2rem 1.25rem;
   border-radius: var(--radius-lg);
   background: var(--surface);
   border: 1px solid var(--stroke);
@@ -293,440 +259,227 @@ const handleRemove = async () => {
   -webkit-backdrop-filter: blur(16px);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 24px 60px rgba(0, 0, 0, 0.35);
-}
-
-.card-head {
+    0 18px 50px rgba(0, 0, 0, 0.32);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  flex-direction: column;
 }
 
-.card-title {
-  margin: 0;
-  font-size: 0.82rem;
+.control-section + .control-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.section-label {
+  margin: 0 0 0.55rem;
+  font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(203, 213, 225, 0.92);
+  color: rgba(148, 163, 184, 0.92);
 }
 
-.card-title--solo {
-  margin-bottom: 1rem;
-}
-
-.card-badge {
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 0.28rem 0.65rem;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.15);
-  color: #e2e8f0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.card-badge--on {
-  background: rgba(74, 222, 128, 0.15);
-  color: #bbf7d0;
-  border-color: rgba(74, 222, 128, 0.35);
-}
-
-.card-badge--offline {
-  background: rgba(248, 113, 113, 0.12);
-  color: #fecaca;
-  border-color: rgba(248, 113, 113, 0.4);
-}
-
-.light-status-card--offline {
-  opacity: 0.92;
-}
-
-.status-showcase {
+.brightness-head {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
 }
 
-.status-stage {
-  position: relative;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 4.6rem;
-  height: 5.6rem;
-  border-radius: var(--radius-md);
-  background:
-    radial-gradient(circle at 50% 32%, rgba(148, 163, 184, 0.18), rgba(2, 6, 23, 0.55) 70%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-  transition: background 0.45s ease;
-}
-
-.status-stage::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 14px 14px;
-  mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
-  opacity: 0.32;
-  pointer-events: none;
-}
-
-.status-stage--on {
-  background:
-    radial-gradient(circle at 50% 34%, rgba(250, 204, 21, 0.22), rgba(2, 6, 23, 0.55) 65%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
-}
-
-.status-body {
-  min-width: 0;
-}
-
-.status-label {
+.brightness-head .section-label {
   margin: 0;
-  font-size: 0.82rem;
-  color: var(--muted);
 }
 
-.status-headline {
-  margin: 0.2rem 0 0;
-  font-size: 1.45rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  color: #e2e8f0;
-}
-
-.status-headline--on {
-  color: #bbf7d0;
-  text-shadow: 0 0 28px rgba(74, 222, 128, 0.35);
-}
-
-.status-headline--offline {
-  color: rgba(226, 232, 240, 0.55);
-}
-
-.updated-time {
+.section-hint {
   margin: 0.5rem 0 0;
-  font-size: 0.8rem;
-  color: rgba(148, 163, 184, 0.95);
+  font-size: 0.76rem;
+  color: rgba(148, 163, 184, 0.85);
 }
 
-.offline-time {
-  margin: 0.25rem 0 0;
-  font-size: 0.78rem;
-  color: rgba(248, 113, 113, 0.75);
+.section-hint--warn {
+  color: var(--amber);
 }
 
 .segmented {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.35rem;
-  padding: 0.3rem;
-  border-radius: 999px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  border-radius: var(--radius-md);
   background: rgba(0, 0, 0, 0.28);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  margin-bottom: 1rem;
 }
 
-.segmented__option {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.55rem 0.5rem;
-  border-radius: 999px;
-  cursor: pointer;
-  color: rgba(226, 232, 240, 0.75);
-  font-size: 0.82rem;
+.segmented[aria-label='โหมด'] {
+  grid-template-columns: 1fr 1fr;
+}
+
+.segmented--compact {
+  grid-template-columns: 1fr 1fr;
+  margin-top: 0.55rem;
+}
+
+.segmented__btn {
+  padding: 0.65rem 0.5rem;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 0.2rem);
+  background: transparent;
+  color: rgba(226, 232, 240, 0.72);
+  font-family: inherit;
+  font-size: 0.85rem;
   font-weight: 600;
+  cursor: pointer;
   transition:
     color 0.2s ease,
     background 0.2s ease,
     box-shadow 0.2s ease;
 }
 
-.segmented__option--active {
+.segmented__btn:hover:not(:disabled):not(.segmented__btn--active) {
+  color: var(--text);
+}
+
+.segmented__btn--active {
   color: var(--text);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.12) inset,
-    0 10px 28px rgba(0, 0, 0, 0.35);
+    0 8px 22px rgba(0, 0, 0, 0.3);
 }
 
-.segmented__input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-  pointer-events: none;
+.segmented__btn--low.segmented__btn--active {
+  color: #fde68a;
+  background: linear-gradient(180deg, rgba(250, 204, 21, 0.22), rgba(250, 204, 21, 0.08));
+  box-shadow:
+    0 1px 0 rgba(254, 240, 138, 0.2) inset,
+    0 8px 22px rgba(250, 204, 21, 0.18);
 }
 
-.segmented__option:focus-within {
+.segmented__btn--high.segmented__btn--active {
+  color: #bbf7d0;
+  background: linear-gradient(180deg, rgba(74, 222, 128, 0.25), rgba(74, 222, 128, 0.08));
+  box-shadow:
+    0 1px 0 rgba(187, 247, 208, 0.22) inset,
+    0 8px 22px rgba(74, 222, 128, 0.2);
+}
+
+.segmented__btn--off.segmented__btn--active {
+  color: #cbd5e1;
+}
+
+.segmented__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.segmented__btn:focus-visible {
   outline: 2px solid rgba(56, 189, 248, 0.55);
   outline-offset: 2px;
 }
 
-.schedule-block {
-  margin-bottom: 0.25rem;
-  transition: opacity 0.25s ease;
+.schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
 }
 
-.schedule-block--disabled {
-  opacity: 0.48;
-  pointer-events: none;
-}
-
-.schedule-hint {
-  margin: 0 0 0.65rem;
-  font-size: 0.76rem;
-  line-height: 1.45;
-  color: rgba(148, 163, 184, 0.9);
-}
-
-.schedule-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-}
-
-.schedule-warning {
-  margin: 0.65rem 0 0;
-  font-size: 0.76rem;
-  line-height: 1.45;
-  color: var(--amber);
-}
-
-.time-field {
-  display: grid;
-  gap: 0.4rem;
-}
-
-.time-field__label {
-  font-size: 0.76rem;
-  font-weight: 500;
-  color: rgba(203, 213, 225, 0.95);
-}
-
-.time-field__input {
-  width: 100%;
+.time-input {
+  flex: 1;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-md);
   padding: 0.55rem 0.65rem;
   background: rgba(6, 9, 18, 0.65);
   color: var(--text);
   font-family: inherit;
-  font-size: 0.9rem;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+  font-size: 0.92rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.time-field__input:focus {
+.time-input:focus {
   outline: none;
   border-color: rgba(56, 189, 248, 0.45);
   box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
 }
 
-.time-field__input:disabled {
-  opacity: 0.55;
-}
-
-.toggle-button {
-  position: relative;
-  margin-top: 1rem;
-  width: 100%;
-  overflow: hidden;
-  padding: 0.85rem 1rem;
-  border: 0;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 0.95rem;
+.schedule-dash {
+  color: rgba(148, 163, 184, 0.7);
   font-weight: 600;
-  color: #042f1a;
-  background: linear-gradient(100deg, #4ade80 0%, #22c55e 45%, #16a34a 100%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.35) inset,
-    0 18px 40px rgba(34, 197, 94, 0.35);
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    filter 0.2s ease;
-}
-
-.toggle-button--off {
-  color: #f8fafc;
-  background: linear-gradient(100deg, rgba(56, 189, 248, 0.95) 0%, rgba(99, 102, 241, 0.95) 100%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.2) inset,
-    0 18px 40px rgba(99, 102, 241, 0.35);
-}
-
-.toggle-button__shine {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.22) 48%, transparent 62%);
-  opacity: 0;
-  transition: opacity 0.25s ease;
-  pointer-events: none;
-}
-
-.toggle-button:hover:not(:disabled) .toggle-button__shine {
-  opacity: 1;
-}
-
-.toggle-button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  filter: brightness(1.04);
-}
-
-.toggle-button:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.toggle-button:disabled {
-  cursor: not-allowed;
-  color: rgba(226, 232, 240, 0.75);
-  background: rgba(51, 65, 85, 0.55);
-  box-shadow: none;
-  filter: none;
-}
-
-.toggle-button:focus-visible {
-  outline: 2px solid rgba(56, 189, 248, 0.75);
-  outline-offset: 3px;
-}
-
-.toggle-button__text {
-  position: relative;
-}
-
-.remove-button {
-  align-self: flex-end;
-  padding: 0.5rem 0.95rem;
-  border-radius: 999px;
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  background: rgba(248, 113, 113, 0.08);
-  color: #fecaca;
-  font-family: inherit;
-  font-size: 0.82rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
-}
-
-.remove-button:hover {
-  background: rgba(248, 113, 113, 0.18);
-  border-color: rgba(248, 113, 113, 0.55);
-  color: #fee2e2;
-}
-
-.remove-button:focus-visible {
-  outline: 2px solid rgba(248, 113, 113, 0.65);
-  outline-offset: 2px;
-}
-
-.card-badge--timer {
-  font-variant-numeric: tabular-nums;
-  background: rgba(56, 189, 248, 0.18);
-  color: #bae6fd;
-  border-color: rgba(56, 189, 248, 0.4);
 }
 
 .timer-presets {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(5.2rem, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(4.8rem, 1fr));
+  gap: 0.4rem;
 }
 
-.timer-preset {
-  padding: 0.65rem 0.5rem;
-  border-radius: var(--radius-md);
+.chip {
+  padding: 0.55rem 0.6rem;
+  border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(15, 23, 42, 0.55);
   color: rgba(226, 232, 240, 0.92);
   font-family: inherit;
-  font-size: 0.86rem;
+  font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
   transition:
     background 0.18s ease,
-    border-color 0.18s ease,
-    transform 0.18s ease;
+    border-color 0.18s ease;
 }
 
-.timer-preset:hover {
-  background: rgba(56, 189, 248, 0.14);
-  border-color: rgba(56, 189, 248, 0.45);
-  transform: translateY(-1px);
+.chip:hover {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.4);
 }
 
-.timer-preset:focus-visible {
-  outline: 2px solid rgba(56, 189, 248, 0.65);
-  outline-offset: 2px;
+.chip--cancel {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.08);
+  color: #fecaca;
+}
+
+.chip--cancel:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.55);
 }
 
 .timer-active {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.85rem;
-  flex-wrap: wrap;
+  gap: 0.65rem;
 }
 
-.timer-display {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.timer-display__value {
+.timer-value {
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 1.85rem;
+  font-size: 1.45rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #bae6fd;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 28px rgba(56, 189, 248, 0.35);
 }
 
-.timer-display__label {
+.timer-label {
+  flex: 1;
   font-size: 0.78rem;
   color: rgba(148, 163, 184, 0.95);
 }
 
-.timer-cancel {
-  padding: 0.55rem 0.95rem;
-  border-radius: 999px;
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  background: rgba(248, 113, 113, 0.08);
-  color: #fecaca;
+.remove-link {
+  align-self: flex-end;
+  margin-top: 1rem;
+  padding: 0.3rem 0.6rem;
+  border: 0;
+  background: transparent;
+  color: rgba(248, 113, 113, 0.75);
   font-family: inherit;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 500;
   cursor: pointer;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease;
 }
 
-.timer-cancel:hover {
-  background: rgba(248, 113, 113, 0.18);
-  border-color: rgba(248, 113, 113, 0.55);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .toggle-button {
-    transition: none;
-  }
+.remove-link:hover {
+  color: #fecaca;
+  text-decoration: underline;
 }
 </style>

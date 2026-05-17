@@ -1,194 +1,108 @@
 <script setup lang="ts">
+import type { BrightnessLevel } from '@/types/device'
+
 withDefaults(
   defineProps<{
-    on?: boolean
+    level?: BrightnessLevel
     size?: 'sm' | 'md' | 'lg'
   }>(),
-  { on: false, size: 'md' },
+  { level: 'off', size: 'md' },
 )
 </script>
 
 <template>
-  <div class="bulb" :class="[`bulb--${size}`, { 'bulb--on': on }]" aria-hidden="true">
-    <div class="bulb__halo" />
-    <svg class="bulb__svg" viewBox="0 0 64 88" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <radialGradient id="bulb-glass-on" cx="38%" cy="34%" r="65%">
-          <stop offset="0%" stop-color="rgba(255, 255, 235, 0.98)" />
-          <stop offset="40%" stop-color="rgba(254, 240, 138, 0.85)" />
-          <stop offset="80%" stop-color="rgba(250, 204, 21, 0.7)" />
-          <stop offset="100%" stop-color="rgba(202, 138, 4, 0.45)" />
-        </radialGradient>
-        <radialGradient id="bulb-glass-off" cx="38%" cy="34%" r="65%">
-          <stop offset="0%" stop-color="rgba(226, 232, 240, 0.45)" />
-          <stop offset="60%" stop-color="rgba(148, 163, 184, 0.28)" />
-          <stop offset="100%" stop-color="rgba(51, 65, 85, 0.22)" />
-        </radialGradient>
-        <linearGradient id="bulb-base-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="rgba(148, 163, 184, 0.95)" />
-          <stop offset="50%" stop-color="rgba(100, 116, 139, 0.95)" />
-          <stop offset="100%" stop-color="rgba(51, 65, 85, 0.95)" />
-        </linearGradient>
-      </defs>
+  <svg
+    class="bulb"
+    :class="[`bulb--${size}`, `bulb--${level}`]"
+    viewBox="0 0 24 28"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <g v-if="level === 'high'" class="bulb__rays">
+      <line x1="12" y1="1.5" x2="12" y2="3" />
+      <line x1="2.5" y1="11" x2="4" y2="11" />
+      <line x1="21.5" y1="11" x2="20" y2="11" />
+      <line x1="4.8" y1="3.8" x2="5.8" y2="4.8" />
+      <line x1="19.2" y1="3.8" x2="18.2" y2="4.8" />
+    </g>
 
-      <path
-        class="bulb__glass"
-        d="M32 4 C17 4, 10 16, 10 28 C10 38, 14 44, 19 50 C21 52, 22 54, 22 56 L42 56 C42 54, 43 52, 45 50 C50 44, 54 38, 54 28 C54 16, 47 4, 32 4 Z"
-      />
+    <ellipse class="bulb__fill" cx="12" cy="11" rx="5.5" ry="6" />
 
-      <ellipse class="bulb__highlight" cx="22" cy="22" rx="4" ry="7" />
-
-      <path
-        class="bulb__filament"
-        d="M22 38 Q25 32, 28 38 Q31 44, 32 38 Q33 32, 36 38 Q39 44, 42 38"
-      />
-
-      <rect class="bulb__band" x="22" y="58" width="20" height="3" rx="0.6" />
-      <rect class="bulb__band" x="22.5" y="62" width="19" height="3" rx="0.6" />
-      <rect class="bulb__band" x="23" y="66" width="18" height="3" rx="0.6" />
-      <rect class="bulb__band" x="23.5" y="70" width="17" height="3" rx="0.6" />
-
-      <path class="bulb__tip" d="M26 73.5 L38 73.5 L35 80 L29 80 Z" />
-    </svg>
-  </div>
+    <path
+      class="bulb__outline"
+      d="M12 4.5a6.5 6.5 0 0 0-4 11.7v2.3h8v-2.3A6.5 6.5 0 0 0 12 4.5Z"
+    />
+    <line class="bulb__base" x1="9" y1="20" x2="15" y2="20" />
+    <line class="bulb__base" x1="10" y1="22.5" x2="14" y2="22.5" />
+    <line class="bulb__base" x1="10.5" y1="25" x2="13.5" y2="25" />
+  </svg>
 </template>
 
 <style scoped>
 .bulb {
-  position: relative;
-  display: grid;
-  place-items: center;
+  display: block;
+  color: rgba(203, 213, 225, 0.65);
+  transition: color 0.3s ease, filter 0.3s ease;
 }
 
 .bulb--sm {
-  width: 2.4rem;
-  height: 3.2rem;
+  width: 1.25rem;
+  height: 1.45rem;
 }
 
 .bulb--md {
-  width: 3.4rem;
-  height: 4.6rem;
+  width: 1.75rem;
+  height: 2rem;
 }
 
 .bulb--lg {
-  width: 5.2rem;
-  height: 7rem;
+  width: 2.6rem;
+  height: 3rem;
 }
 
-.bulb__svg {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  filter: drop-shadow(0 6px 10px rgba(2, 6, 23, 0.45));
-  transition: filter 0.4s ease;
-}
-
-.bulb--on .bulb__svg {
-  filter: drop-shadow(0 0 18px rgba(250, 204, 21, 0.55))
-    drop-shadow(0 4px 8px rgba(202, 138, 4, 0.35));
-}
-
-.bulb__glass {
-  fill: url(#bulb-glass-off);
-  stroke: rgba(255, 255, 255, 0.35);
-  stroke-width: 0.9;
-  transition:
-    fill 0.4s ease,
-    stroke 0.4s ease;
-}
-
-.bulb--on .bulb__glass {
-  fill: url(#bulb-glass-on);
-  stroke: rgba(254, 249, 195, 0.85);
-}
-
-.bulb__highlight {
-  fill: rgba(255, 255, 255, 0.32);
-  transition: fill 0.4s ease;
-}
-
-.bulb--on .bulb__highlight {
-  fill: rgba(255, 255, 255, 0.78);
-}
-
-.bulb__filament {
+.bulb__outline,
+.bulb__base,
+.bulb__rays line {
   fill: none;
-  stroke: rgba(120, 113, 108, 0.65);
-  stroke-width: 1.3;
+  stroke: currentColor;
+  stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
-  transition:
-    stroke 0.4s ease,
-    filter 0.4s ease;
 }
 
-.bulb--on .bulb__filament {
-  stroke: #fde047;
-  filter: drop-shadow(0 0 4px rgba(250, 204, 21, 0.95));
-  animation: bulb-flicker 2.6s ease-in-out infinite;
-}
-
-.bulb__band {
-  fill: url(#bulb-base-grad);
-  stroke: rgba(255, 255, 255, 0.18);
-  stroke-width: 0.4;
-}
-
-.bulb__tip {
-  fill: rgba(30, 41, 59, 0.95);
-  stroke: rgba(255, 255, 255, 0.1);
-  stroke-width: 0.4;
-}
-
-.bulb__halo {
-  position: absolute;
-  inset: -10%;
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 38%, rgba(250, 204, 21, 0.55), transparent 60%);
+.bulb__fill {
+  fill: currentColor;
   opacity: 0;
-  transform: scale(0.7);
-  transition:
-    opacity 0.45s ease,
-    transform 0.45s ease;
-  pointer-events: none;
+  transition: opacity 0.3s ease;
 }
 
-.bulb--on .bulb__halo {
-  opacity: 1;
-  transform: scale(1.35);
-  animation: bulb-pulse 2.6s ease-in-out infinite;
+.bulb--low {
+  color: #fde68a;
 }
 
-@keyframes bulb-pulse {
-  0%,
-  100% {
-    opacity: 0.82;
-    transform: scale(1.3);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.5);
-  }
+.bulb--low .bulb__fill {
+  opacity: 0.32;
 }
 
-@keyframes bulb-flicker {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  48% {
-    opacity: 0.92;
-  }
-  52% {
-    opacity: 1;
-  }
+.bulb--high {
+  color: #fde047;
+  filter: drop-shadow(0 0 6px rgba(250, 204, 21, 0.45));
+}
+
+.bulb--high .bulb__fill {
+  opacity: 0.7;
+}
+
+.bulb--high .bulb__rays {
+  stroke: currentColor;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bulb--on .bulb__halo,
-  .bulb--on .bulb__filament {
-    animation: none;
+  .bulb {
+    transition: none;
+  }
+  .bulb__fill {
+    transition: none;
   }
 }
 </style>

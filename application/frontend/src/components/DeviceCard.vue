@@ -2,7 +2,12 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
-import type { Device } from '@/types/device'
+import {
+  BRIGHTNESS_LABELS,
+  BRIGHTNESS_LEVELS,
+  type BrightnessLevel,
+  type Device,
+} from '@/types/device'
 import BulbVisual from '@/components/BulbVisual.vue'
 
 const props = defineProps<{ device: Device }>()
@@ -11,19 +16,34 @@ const store = useDevicesStore()
 const { states } = storeToRefs(store)
 
 const state = computed(() => states.value[props.device.id])
-const isOn = computed(() => state.value?.isOn ?? false)
 const isOnline = computed(() => state.value?.isOnline ?? false)
-const controlMode = computed(() => state.value?.controlMode ?? 'manual')
+const brightness = computed<BrightnessLevel>(() => store.getBrightness(props.device.id))
+const deviceMode = computed(() => store.getDeviceMode(props.device.id))
+
+const lastUpdate = computed(() => {
+  const s = state.value
+  if (!s) return null
+  const ts = [
+    s.outputs.out1.lastUpdatedAt,
+    s.outputs.out2.lastUpdatedAt,
+  ].filter((v): v is string => !!v)
+  if (ts.length === 0) return null
+  return ts.sort().pop() as string
+})
 
 const formatThaiDateTime = (isoDate: string) =>
   new Intl.DateTimeFormat('th-TH', { dateStyle: 'short', timeStyle: 'short' }).format(
     new Date(isoDate),
   )
 
-const handleQuickToggle = (event: Event) => {
+const badgeLabel = computed(() =>
+  !isOnline.value ? 'ออฟไลน์' : BRIGHTNESS_LABELS[brightness.value],
+)
+
+const handleQuick = (level: BrightnessLevel, event: Event) => {
   event.preventDefault()
   event.stopPropagation()
-  store.toggleDevice(props.device.id).catch(() => {})
+  store.setBrightness(props.device.id, level).catch(() => {})
 }
 </script>
 
@@ -31,63 +51,62 @@ const handleQuickToggle = (event: Event) => {
   <RouterLink
     :to="{ name: 'device-detail', params: { id: device.id } }"
     class="device-card"
-    :class="{ 'device-card--on': isOn }"
+    :class="[
+      isOnline ? `device-card--${brightness}` : 'device-card--offline',
+    ]"
   >
     <div class="device-card__head">
       <div class="device-card__identity">
-        <div class="device-card__id-row">
-          <span
-            class="device-card__dot"
-            :class="{ 'device-card__dot--online': isOnline }"
-            :title="isOnline ? 'online' : 'offline'"
-          />
-          <span class="device-card__id">{{ device.id }}</span>
-        </div>
-        <span class="device-card__location">{{ device.location }}</span>
+        <span
+          class="device-card__dot"
+          :class="{ 'device-card__dot--online': isOnline }"
+          :title="isOnline ? 'online' : 'offline'"
+        />
+        <span class="device-card__id">{{ device.id }}</span>
       </div>
-      <span class="device-card__badge" :class="{ 'device-card__badge--on': isOn }">
-        {{ isOn ? 'เปิด' : 'ปิด' }}
+      <span
+        class="device-card__badge"
+        :class="[
+          isOnline ? `device-card__badge--${brightness}` : 'device-card__badge--offline',
+        ]"
+      >
+        <BulbVisual :level="isOnline ? brightness : 'off'" size="sm" />
+        {{ badgeLabel }}
       </span>
     </div>
 
     <div class="device-card__meta">
-      <span class="device-card__mode">
-        {{ controlMode === 'auto' ? 'อัตโนมัติ' : 'ควบคุมเอง' }}
-      </span>
-      <span v-if="state?.lastUpdatedAt" class="device-card__time">
-        {{ formatThaiDateTime(state.lastUpdatedAt) }}
+      <span class="device-card__location">{{ device.location }}</span>
+      <span v-if="lastUpdate" class="device-card__time">
+        {{ formatThaiDateTime(lastUpdate) }}
       </span>
     </div>
 
-    <div class="device-card__stage" :class="{ 'device-card__stage--on': isOn }">
-      <BulbVisual :on="isOn" size="md" />
+    <div class="device-card__segmented">
+      <button
+        v-for="level in BRIGHTNESS_LEVELS"
+        :key="level"
+        type="button"
+        class="device-card__btn"
+        :class="{
+          'device-card__btn--active': brightness === level,
+          [`device-card__btn--${level}`]: brightness === level,
+        }"
+        :disabled="!isOnline || deviceMode === 'auto'"
+        @click="handleQuick(level, $event)"
+      >
+        {{ BRIGHTNESS_LABELS[level] }}
+      </button>
     </div>
-
-    <button
-      type="button"
-      class="device-card__toggle"
-      :class="{ 'device-card__toggle--off': !isOn }"
-      :disabled="controlMode === 'auto'"
-      @click="handleQuickToggle"
-    >
-      {{
-        controlMode === 'auto'
-          ? 'อัตโนมัติ'
-          : isOn
-            ? 'ปิดหลอดไฟ'
-            : 'เปิดหลอดไฟ'
-      }}
-    </button>
   </RouterLink>
 </template>
 
 <style scoped>
 .device-card {
-  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  padding: 1.1rem 1.15rem;
+  gap: 0.65rem;
+  padding: 1rem 1.05rem;
   border-radius: var(--radius-lg);
   background: var(--surface);
   border: 1px solid var(--stroke);
@@ -97,7 +116,7 @@ const handleQuickToggle = (event: Event) => {
   -webkit-backdrop-filter: blur(16px);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 18px 50px rgba(0, 0, 0, 0.32);
+    0 14px 38px rgba(0, 0, 0, 0.3);
   transition:
     border-color 0.25s ease,
     transform 0.2s ease,
@@ -107,37 +126,36 @@ const handleQuickToggle = (event: Event) => {
 .device-card:hover {
   transform: translateY(-1px);
   border-color: rgba(56, 189, 248, 0.35);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.08) inset,
-    0 22px 60px rgba(0, 0, 0, 0.4);
 }
 
-.device-card--on {
-  border-color: rgba(74, 222, 128, 0.35);
+.device-card--low {
+  border-color: rgba(250, 204, 21, 0.32);
+}
+
+.device-card--high {
+  border-color: rgba(74, 222, 128, 0.4);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.08) inset,
-    0 0 32px rgba(74, 222, 128, 0.15),
-    0 18px 50px rgba(0, 0, 0, 0.32);
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 0 24px rgba(74, 222, 128, 0.12),
+    0 14px 38px rgba(0, 0, 0, 0.3);
+}
+
+.device-card--offline {
+  opacity: 0.78;
 }
 
 .device-card__head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.65rem;
 }
 
 .device-card__identity {
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  min-width: 0;
-}
-
-.device-card__id-row {
-  display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 .device-card__dot {
@@ -158,107 +176,109 @@ const handleQuickToggle = (event: Event) => {
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
   font-size: 0.95rem;
   font-weight: 600;
-  color: var(--text);
   word-break: break-all;
-}
-
-.device-card__location {
-  font-size: 0.82rem;
-  color: var(--muted);
 }
 
 .device-card__badge {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   font-size: 0.72rem;
   font-weight: 600;
-  padding: 0.25rem 0.6rem;
+  padding: 0.2rem 0.6rem 0.2rem 0.4rem;
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.15);
   color: #e2e8f0;
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.device-card__badge--on {
+.device-card__badge--low {
+  background: rgba(250, 204, 21, 0.18);
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, 0.4);
+}
+
+.device-card__badge--high {
   background: rgba(74, 222, 128, 0.18);
   color: #bbf7d0;
   border-color: rgba(74, 222, 128, 0.4);
 }
 
+.device-card__badge--offline {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
 .device-card__meta {
   display: flex;
   justify-content: space-between;
-  font-size: 0.76rem;
+  gap: 0.6rem;
+  font-size: 0.78rem;
   color: rgba(148, 163, 184, 0.95);
 }
 
-.device-card__stage {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 6rem;
-  padding: 0.55rem 0.5rem 0.35rem;
-  border-radius: var(--radius-md);
-  background:
-    radial-gradient(circle at 50% 30%, rgba(148, 163, 184, 0.18), rgba(2, 6, 23, 0.55) 70%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
-  border: 1px solid rgba(255, 255, 255, 0.08);
+.device-card__location {
+  min-width: 0;
   overflow: hidden;
-  transition: background 0.45s ease;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.device-card__stage::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 14px 14px;
-  mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
-  opacity: 0.3;
-  pointer-events: none;
+.device-card__time {
+  flex-shrink: 0;
 }
 
-.device-card__stage--on {
-  background:
-    radial-gradient(circle at 50% 32%, rgba(250, 204, 21, 0.2), rgba(2, 6, 23, 0.55) 65%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
-}
-
-.device-card__toggle {
-  width: 100%;
-  padding: 0.6rem 0.9rem;
-  border: 0;
+.device-card__segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.25rem;
+  padding: 0.22rem;
   border-radius: var(--radius-md);
-  cursor: pointer;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.device-card__btn {
+  padding: 0.45rem 0.4rem;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 0.2rem);
+  background: transparent;
+  color: rgba(226, 232, 240, 0.72);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  color: #042f1a;
-  background: linear-gradient(100deg, #4ade80 0%, #22c55e 100%);
-  box-shadow: 0 8px 24px rgba(34, 197, 94, 0.3);
+  cursor: pointer;
   transition:
-    transform 0.18s ease,
-    filter 0.18s ease;
+    color 0.2s ease,
+    background 0.2s ease;
 }
 
-.device-card__toggle--off {
-  color: #f8fafc;
-  background: linear-gradient(100deg, rgba(56, 189, 248, 0.95), rgba(99, 102, 241, 0.95));
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
+.device-card__btn:hover:not(:disabled):not(.device-card__btn--active) {
+  color: var(--text);
 }
 
-.device-card__toggle:hover:not(:disabled) {
-  filter: brightness(1.06);
-  transform: translateY(-1px);
+.device-card__btn--active {
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 6px 16px rgba(0, 0, 0, 0.25);
 }
 
-.device-card__toggle:disabled {
+.device-card__btn--low.device-card__btn--active {
+  color: #fde68a;
+  background: linear-gradient(180deg, rgba(250, 204, 21, 0.22), rgba(250, 204, 21, 0.08));
+}
+
+.device-card__btn--high.device-card__btn--active {
+  color: #bbf7d0;
+  background: linear-gradient(180deg, rgba(74, 222, 128, 0.25), rgba(74, 222, 128, 0.08));
+}
+
+.device-card__btn:disabled {
   cursor: not-allowed;
-  background: rgba(51, 65, 85, 0.55);
-  color: rgba(226, 232, 240, 0.7);
-  box-shadow: none;
+  opacity: 0.55;
 }
-
 </style>

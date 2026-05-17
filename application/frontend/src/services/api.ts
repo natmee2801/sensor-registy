@@ -1,9 +1,12 @@
-import type {
-  ControlMode,
-  Device,
-  DeviceLog,
-  DeviceState,
-  PairingSession,
+import {
+  OUTPUT_IDS,
+  type ControlMode,
+  type Device,
+  type DeviceLog,
+  type DeviceState,
+  type OutputId,
+  type OutputState,
+  type PairingSession,
 } from '@/types/device'
 
 const BASE_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
@@ -26,20 +29,24 @@ export class ApiError extends Error {
   }
 }
 
+interface RawOutputState {
+  isOn: boolean
+  lastUpdatedAt: string | null
+  controlMode: ControlMode
+  autoOnTime: string
+  autoOffTime: string
+  offTimerEndsAt: string | null
+}
+
 interface RawDevice {
   _id: string
   location: string
   createdAt: string
   state: {
-    isOn: boolean
-    lastUpdatedAt: string | null
-    controlMode: ControlMode
-    autoOnTime: string
-    autoOffTime: string
-    offTimerEndsAt: string | null
     isOnline?: boolean
     lastSeenAt?: string | null
     mac?: string | null
+    outputs?: Partial<Record<OutputId, RawOutputState>>
   }
 }
 
@@ -52,20 +59,39 @@ interface RawPairingSession {
   lastSeenAt: string
 }
 
+const defaultOutput = (): OutputState => ({
+  isOn: false,
+  lastUpdatedAt: null,
+  controlMode: 'manual',
+  autoOnTime: '18:00',
+  autoOffTime: '23:00',
+  offTimerEndsAt: null,
+})
+
+const normalizeOutput = (raw: RawOutputState | undefined): OutputState => {
+  if (!raw) return defaultOutput()
+  return {
+    isOn: raw.isOn,
+    lastUpdatedAt: raw.lastUpdatedAt,
+    controlMode: raw.controlMode,
+    autoOnTime: raw.autoOnTime,
+    autoOffTime: raw.autoOffTime,
+    offTimerEndsAt: raw.offTimerEndsAt,
+  }
+}
+
 const normalizeDevice = (raw: RawDevice): Device => ({
   id: raw._id,
   location: raw.location,
   createdAt: raw.createdAt,
   state: {
-    isOn: raw.state.isOn,
-    lastUpdatedAt: raw.state.lastUpdatedAt,
-    controlMode: raw.state.controlMode,
-    autoOnTime: raw.state.autoOnTime,
-    autoOffTime: raw.state.autoOffTime,
-    offTimerEndsAt: raw.state.offTimerEndsAt,
     isOnline: raw.state.isOnline ?? false,
     lastSeenAt: raw.state.lastSeenAt ?? null,
     mac: raw.state.mac ?? null,
+    outputs: {
+      out1: normalizeOutput(raw.state.outputs?.out1),
+      out2: normalizeOutput(raw.state.outputs?.out2),
+    },
   } satisfies DeviceState,
 })
 
@@ -131,57 +157,69 @@ export const claimDevice = async (input: {
   return normalizeDevice(raw)
 }
 
-export const toggleDevice = async (id: string): Promise<Device> => {
-  const raw = await request<RawDevice>('POST', `/api/devices/${encodeURIComponent(id)}/toggle`)
+const outputPath = (id: string, outputId: OutputId, suffix: string) =>
+  `/api/devices/${encodeURIComponent(id)}/outputs/${encodeURIComponent(outputId)}${suffix}`
+
+export const toggleOutput = async (id: string, outputId: OutputId): Promise<Device> => {
+  const raw = await request<RawDevice>('POST', outputPath(id, outputId, '/toggle'))
   return normalizeDevice(raw)
 }
 
-export const setMode = async (id: string, mode: ControlMode): Promise<Device> => {
+export const toggleAll = async (id: string, isOn: boolean): Promise<Device> => {
   const raw = await request<RawDevice>(
-    'PATCH',
-    `/api/devices/${encodeURIComponent(id)}/mode`,
-    { mode },
+    'POST',
+    `/api/devices/${encodeURIComponent(id)}/toggle-all`,
+    { isOn },
   )
+  return normalizeDevice(raw)
+}
+
+export const setMode = async (
+  id: string,
+  outputId: OutputId,
+  mode: ControlMode,
+): Promise<Device> => {
+  const raw = await request<RawDevice>('PATCH', outputPath(id, outputId, '/mode'), { mode })
   return normalizeDevice(raw)
 }
 
 export const setAutoTimes = async (
   id: string,
+  outputId: OutputId,
   autoOnTime: string,
   autoOffTime: string,
 ): Promise<Device> => {
-  const raw = await request<RawDevice>(
-    'PATCH',
-    `/api/devices/${encodeURIComponent(id)}/auto-times`,
-    { autoOnTime, autoOffTime },
-  )
+  const raw = await request<RawDevice>('PATCH', outputPath(id, outputId, '/auto-times'), {
+    autoOnTime,
+    autoOffTime,
+  })
   return normalizeDevice(raw)
 }
 
-export const startOffTimer = async (id: string, durationMs: number): Promise<Device> => {
-  const raw = await request<RawDevice>(
-    'POST',
-    `/api/devices/${encodeURIComponent(id)}/off-timer`,
-    { durationMs },
-  )
+export const startOffTimer = async (
+  id: string,
+  outputId: OutputId,
+  durationMs: number,
+): Promise<Device> => {
+  const raw = await request<RawDevice>('POST', outputPath(id, outputId, '/off-timer'), {
+    durationMs,
+  })
   return normalizeDevice(raw)
 }
 
-export const cancelOffTimer = async (id: string): Promise<Device> => {
-  const raw = await request<RawDevice>(
-    'DELETE',
-    `/api/devices/${encodeURIComponent(id)}/off-timer`,
-  )
+export const cancelOffTimer = async (id: string, outputId: OutputId): Promise<Device> => {
+  const raw = await request<RawDevice>('DELETE', outputPath(id, outputId, '/off-timer'))
   return normalizeDevice(raw)
 }
 
 export const getLogs = async (
   id: string,
-  opts: { limit?: number; before?: string } = {},
+  opts: { limit?: number; before?: string; output?: OutputId } = {},
 ): Promise<{ items: DeviceLog[]; nextCursor: string | null }> => {
   const params = new URLSearchParams()
   if (opts.limit) params.set('limit', String(opts.limit))
   if (opts.before) params.set('before', opts.before)
+  if (opts.output) params.set('output', opts.output)
   const qs = params.toString() ? `?${params.toString()}` : ''
   return request<{ items: DeviceLog[]; nextCursor: string | null }>(
     'GET',
@@ -249,3 +287,5 @@ export const subscribeToEvents = (
     source.close()
   }
 }
+
+export { OUTPUT_IDS }

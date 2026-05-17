@@ -1,4 +1,4 @@
-import { Device } from '../models/Device.ts'
+import { Device, OUTPUT_IDS } from '../models/Device.ts'
 import {
   applyAutoScheduleIfNeeded,
   expireTimerIfDue,
@@ -15,10 +15,10 @@ export const runTick = async (now: Date = new Date()): Promise<void> => {
   }
 
   const candidates = await Device.find({
-    $or: [
-      { 'state.controlMode': 'auto' },
-      { 'state.offTimerEndsAt': { $ne: null } },
-    ],
+    $or: OUTPUT_IDS.flatMap((o) => [
+      { [`state.outputs.${o}.controlMode`]: 'auto' },
+      { [`state.outputs.${o}.offTimerEndsAt`]: { $ne: null } },
+    ]),
   })
     .select('_id')
     .lean()
@@ -26,11 +26,13 @@ export const runTick = async (now: Date = new Date()): Promise<void> => {
   if (candidates.length === 0) return
 
   for (const doc of candidates) {
-    try {
-      await expireTimerIfDue(doc._id, now)
-      await applyAutoScheduleIfNeeded(doc._id, now)
-    } catch (err) {
-      logger.error({ err, deviceId: doc._id }, 'tick: failed for device')
+    for (const outputId of OUTPUT_IDS) {
+      try {
+        await expireTimerIfDue(doc._id, outputId, now)
+        await applyAutoScheduleIfNeeded(doc._id, outputId, now)
+      } catch (err) {
+        logger.error({ err, deviceId: doc._id, outputId }, 'tick: failed for output')
+      }
     }
   }
 }

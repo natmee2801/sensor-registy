@@ -2,7 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
-import type { DeviceLog, LogType } from '@/types/device'
+import {
+  OUTPUT_BRIGHTNESS_CHIP,
+  type DeviceLog,
+  type LogDirection,
+  type LogType,
+  type OutputId,
+} from '@/types/device'
 
 const props = defineProps<{ deviceId: string }>()
 
@@ -27,23 +33,85 @@ const LOG_LABEL: Record<LogType, string> = {
   cmd_timeout: 'ไม่ได้รับการตอบรับ',
   device_online: 'ออนไลน์',
   device_offline: 'ออฟไลน์',
+  hb_sync: 'sync จาก heartbeat',
   paired: 'จับคู่สำเร็จ',
 }
 
-const isOnEvent = (type: LogType) =>
-  type === 'toggle' || type === 'auto_on' || type === 'auto_off' || type === 'timer_expired'
+const DIRECTION_GLYPH: Record<LogDirection, string> = {
+  out: '→ ESP',
+  in: '← ESP',
+  internal: '• ภายในระบบ',
+}
+const DIRECTION_TOOLTIP: Record<LogDirection, string> = {
+  out: 'ส่งคำสั่งไปยังอุปกรณ์',
+  in: 'รับจากอุปกรณ์',
+  internal: 'ภายในระบบ (ไม่ผ่าน MQTT)',
+}
 
-const formatThaiDateTime = (isoDate: string) =>
-  new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'medium' }).format(
+const isOnEvent = (type: LogType) =>
+  type === 'toggle' ||
+  type === 'auto_on' ||
+  type === 'auto_off' ||
+  type === 'timer_expired' ||
+  type === 'cmd_ack' ||
+  type === 'hb_sync'
+
+const outputLabel = (output: OutputId | null) =>
+  output ? OUTPUT_BRIGHTNESS_CHIP[output] : null
+
+const formatThaiDate = (isoDate: string) =>
+  new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium' }).format(new Date(isoDate))
+const formatTime = (isoDate: string) =>
+  new Intl.DateTimeFormat('th-TH', { timeStyle: 'medium', hour12: false }).format(
     new Date(isoDate),
   )
+
+const dayKey = (iso: string) => {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
+const TODAY_KEY = dayKey(new Date().toISOString())
+const YESTERDAY_KEY = (() => {
+  const y = new Date()
+  y.setDate(y.getDate() - 1)
+  return dayKey(y.toISOString())
+})()
+
+const dayLabel = (iso: string) => {
+  const k = dayKey(iso)
+  if (k === TODAY_KEY) return 'วันนี้'
+  if (k === YESTERDAY_KEY) return 'เมื่อวาน'
+  return formatThaiDate(iso)
+}
+
+interface TimelineItem {
+  type: 'separator' | 'log'
+  key: string
+  log?: DeviceLog
+  separatorLabel?: string
+}
+
+const timeline = computed<TimelineItem[]>(() => {
+  const items: TimelineItem[] = []
+  let lastDay = ''
+  for (const log of logs.value) {
+    const k = dayKey(log.createdAt)
+    if (k !== lastDay) {
+      items.push({ type: 'separator', key: `sep-${k}`, separatorLabel: dayLabel(log.createdAt) })
+      lastDay = k
+    }
+    items.push({ type: 'log', key: log._id, log })
+  }
+  return items
+})
 
 const loadLogs = async (reset = false) => {
   if (logsLoading.value) return
   logsLoading.value = true
   try {
     const before = reset ? undefined : logsCursor.value ?? undefined
-    const res = await store.fetchLogs(props.deviceId, { limit: 5, before })
+    const res = await store.fetchLogs(props.deviceId, { limit: 10, before })
     logs.value = reset ? res.items : [...logs.value, ...res.items]
     logsCursor.value = res.nextCursor
   } catch {
@@ -57,43 +125,76 @@ onMounted(() => {
   loadLogs(true)
 })
 
-watch(
-  () => state.value?.lastUpdatedAt,
-  (next, prev) => {
-    if (next !== prev && next !== undefined) loadLogs(true)
-  },
-)
+const refreshKey = computed(() => {
+  const s = state.value
+  if (!s) return ''
+  return [
+    s.isOnline ? '1' : '0',
+    s.lastSeenAt ?? '-',
+    s.outputs.out1.isOn ? '1' : '0',
+    s.outputs.out1.lastUpdatedAt ?? '-',
+    s.outputs.out2.isOn ? '1' : '0',
+    s.outputs.out2.lastUpdatedAt ?? '-',
+  ].join('|')
+})
+
+watch(refreshKey, (next, prev) => {
+  if (next && next !== prev) loadLogs(true)
+})
 </script>
 
 <template>
   <div class="light-history-card">
-    <h2 class="card-title card-title--solo">ประวัติการเปลี่ยนสถานะ</h2>
-    <ul v-if="logs.length > 0" class="history-list">
-      <li
-        v-for="log in logs"
-        :key="log._id"
-        class="history-item"
-      >
-        <span
-          class="history-dot"
-          :class="{ 'history-dot--on': isOnEvent(log.type) && log.isOn === true }"
-          aria-hidden="true"
-        />
-        <div class="history-main">
+    <h2 class="card-title">ประวัติการเปลี่ยนสถานะ</h2>
+
+    <ul v-if="timeline.length > 0" class="history-timeline">
+      <template v-for="item in timeline" :key="item.key">
+        <li v-if="item.type === 'separator'" class="history-separator">
+          <span class="history-separator__line" aria-hidden="true" />
+          <span class="history-separator__label">{{ item.separatorLabel }}</span>
+          <span class="history-separator__line" aria-hidden="true" />
+        </li>
+        <li v-else-if="item.log" class="history-item">
           <span
-            class="history-status"
-            :class="{ 'history-status--on': isOnEvent(log.type) && log.isOn === true }"
-          >
-            {{ LOG_LABEL[log.type] }}{{ log.isOn !== null ? ` · ${log.isOn ? 'เปิด' : 'ปิด'}` : '' }}
-          </span>
-          <span class="history-time">{{ formatThaiDateTime(log.createdAt) }}</span>
-        </div>
-      </li>
+            class="history-node"
+            :class="[`history-node--${item.log.direction}`]"
+            aria-hidden="true"
+          />
+          <div class="history-content">
+            <div class="history-meta">
+              <span
+                class="history-direction"
+                :class="[`history-direction--${item.log.direction}`]"
+                :title="DIRECTION_TOOLTIP[item.log.direction]"
+              >
+                {{ DIRECTION_GLYPH[item.log.direction] }}
+              </span>
+              <span v-if="outputLabel(item.log.output)" class="history-output-chip">
+                {{ outputLabel(item.log.output) }}
+              </span>
+              <span class="history-time">{{ formatTime(item.log.createdAt) }}</span>
+            </div>
+            <div
+              class="history-event"
+              :class="{
+                'history-event--on': isOnEvent(item.log.type) && item.log.isOn === true,
+                'history-event--off': isOnEvent(item.log.type) && item.log.isOn === false,
+              }"
+            >
+              {{ LOG_LABEL[item.log.type] }}<span
+                v-if="item.log.isOn !== null"
+                class="history-event__suffix"
+              > · {{ item.log.isOn ? 'เปิด' : 'ปิด' }}</span>
+            </div>
+          </div>
+        </li>
+      </template>
     </ul>
     <p v-else-if="!logsLoading" class="history-empty">
       ยังไม่มีประวัติ — ลองสลับสถานะเพื่อดูรายการที่นี่
     </p>
     <p v-else class="history-empty">กำลังโหลด…</p>
+
     <button
       type="button"
       class="history-load-more"
@@ -119,7 +220,7 @@ watch(
 }
 
 .card-title {
-  margin: 0;
+  margin: 0 0 1rem;
   font-size: 0.82rem;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -127,67 +228,162 @@ watch(
   color: rgba(203, 213, 225, 0.92);
 }
 
-.card-title--solo {
-  margin-bottom: 1rem;
-}
-
-.history-list {
-  margin: 0;
-  padding: 0;
+.history-timeline {
+  position: relative;
   list-style: none;
+  margin: 0;
+  padding: 0 0 0 1.6rem;
+  border-left: 2px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 0.05rem;
 }
 
 .history-item {
   position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.65rem 0;
+  padding: 0.55rem 0;
 }
 
-.history-item + .history-item {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+.history-node {
+  position: absolute;
+  left: -2.05rem;
+  top: 0.85rem;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.6);
+  box-shadow:
+    0 0 0 3px var(--surface),
+    0 0 0 4px rgba(255, 255, 255, 0.05);
 }
 
-.history-dot {
-  margin-top: 0.35rem;
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: rgba(248, 113, 113, 0.85);
-  box-shadow: 0 0 12px rgba(248, 113, 113, 0.45);
+.history-node--out {
+  background: #38bdf8;
+  box-shadow:
+    0 0 0 3px var(--surface),
+    0 0 0 4px rgba(56, 189, 248, 0.4),
+    0 0 10px rgba(56, 189, 248, 0.5);
 }
 
-.history-dot--on {
-  background: rgba(74, 222, 128, 0.95);
-  box-shadow: 0 0 12px rgba(74, 222, 128, 0.45);
+.history-node--in {
+  background: #a78bfa;
+  box-shadow:
+    0 0 0 3px var(--surface),
+    0 0 0 4px rgba(167, 139, 250, 0.4),
+    0 0 10px rgba(167, 139, 250, 0.5);
 }
 
-.history-main {
-  flex: 1;
-  min-width: 0;
+.history-node--internal {
+  background: rgba(148, 163, 184, 0.6);
+  box-shadow:
+    0 0 0 3px var(--surface),
+    0 0 0 4px rgba(148, 163, 184, 0.18);
+}
+
+.history-content {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.2rem;
 }
 
-.history-status {
-  font-size: 0.92rem;
+.history-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.74rem;
+  flex-wrap: wrap;
+}
+
+.history-direction {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.7rem;
   font-weight: 600;
-  color: #fecaca;
+  letter-spacing: 0.02em;
+  color: rgba(203, 213, 225, 0.85);
+  cursor: help;
 }
 
-.history-status--on {
-  color: #bbf7d0;
+.history-direction--out {
+  color: #bae6fd;
+  background: rgba(56, 189, 248, 0.14);
+  border-color: rgba(56, 189, 248, 0.32);
+}
+
+.history-direction--in {
+  color: #ddd6fe;
+  background: rgba(167, 139, 250, 0.14);
+  border-color: rgba(167, 139, 250, 0.32);
+}
+
+.history-direction--internal {
+  color: rgba(203, 213, 225, 0.85);
+}
+
+.history-output-chip {
+  display: inline-flex;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.1);
+  border: 1px solid rgba(250, 204, 21, 0.25);
+  color: #fde68a;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .history-time {
-  font-size: 0.78rem;
-  color: rgba(148, 163, 184, 0.95);
+  margin-left: auto;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.72rem;
+  color: rgba(148, 163, 184, 0.85);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-event {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.92);
+}
+
+.history-event--on {
+  color: #bbf7d0;
+}
+
+.history-event--off {
+  color: #fecaca;
+}
+
+.history-event__suffix {
+  font-weight: 500;
+  opacity: 0.92;
+}
+
+.history-separator {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.85rem 0 0.2rem;
+  margin-left: -1.6rem;
+  padding-left: 0.4rem;
+}
+
+.history-separator__line {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.history-separator__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
 }
 
 .history-empty {
@@ -199,7 +395,7 @@ watch(
 }
 
 .history-load-more {
-  margin-top: 0.75rem;
+  margin-top: 0.95rem;
   width: 100%;
   padding: 0.55rem 0.95rem;
   border-radius: var(--radius-md);

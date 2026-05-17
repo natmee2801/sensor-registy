@@ -1,4 +1,4 @@
-import { Device } from '../models/Device.ts'
+import { Device, OUTPUT_IDS } from '../models/Device.ts'
 import { DeviceLog } from '../models/DeviceLog.ts'
 import { PairingSession } from '../models/PairingSession.ts'
 import { appBus } from './events.ts'
@@ -75,11 +75,19 @@ export const claim = async (rawMac: string, location: string) => {
       state: { mac },
     })
     const obj = created.toObject()
-    await DeviceLog.create({ deviceId, type: 'paired', meta: { mac } })
+    await DeviceLog.create({
+      deviceId,
+      type: 'paired',
+      direction: 'internal',
+      output: null,
+      meta: { mac },
+    })
     await PairingSession.deleteOne({ mac })
     appBus.emitDeviceUpdated(obj)
     appBus.emitPairClaimed(mac)
-    applyAutoScheduleIfNeeded(deviceId).catch(() => {})
+    for (const outputId of OUTPUT_IDS) {
+      applyAutoScheduleIfNeeded(deviceId, outputId).catch(() => {})
+    }
     mqtt.publishPairAck(mac, deviceId).catch((err) => {
       logger.warn({ err, mac, deviceId }, 'pair ack publish failed')
     })

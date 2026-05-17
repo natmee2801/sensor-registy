@@ -6,6 +6,7 @@ import { useDevicesStore } from '@/stores/devices'
 import DeviceControl from '@/components/DeviceControl.vue'
 import DeviceHistory from '@/components/DeviceHistory.vue'
 import BulbVisual from '@/components/BulbVisual.vue'
+import { BRIGHTNESS_LABELS, type BrightnessLevel } from '@/types/device'
 
 const props = defineProps<{ id: string }>()
 
@@ -14,9 +15,10 @@ const store = useDevicesStore()
 const { devices, states } = storeToRefs(store)
 
 const device = computed(() => devices.value[props.id] ?? null)
-const isOn = computed(() => states.value[props.id]?.isOn ?? false)
-const isOnline = computed(() => states.value[props.id]?.isOnline ?? false)
-const heroLit = computed(() => isOn.value && isOnline.value)
+const state = computed(() => states.value[props.id] ?? null)
+const isOnline = computed(() => state.value?.isOnline ?? false)
+const brightness = computed<BrightnessLevel>(() => store.getBrightness(props.id))
+const deviceMode = computed(() => store.getDeviceMode(props.id))
 
 const activeTab = ref<'control' | 'history'>('control')
 
@@ -35,15 +37,7 @@ const formatThaiDate = (isoDate: string) =>
 <template>
   <section v-if="device" class="device-detail">
     <header class="device-detail__hero">
-      <div
-        class="device-detail__stage"
-        :class="{
-          'device-detail__stage--on': heroLit,
-          'device-detail__stage--offline': !isOnline,
-        }"
-      >
-        <BulbVisual :on="heroLit" size="lg" />
-      </div>
+      <BulbVisual class="device-detail__bulb" :level="isOnline ? brightness : 'off'" size="lg" />
       <div class="device-detail__info">
         <div class="device-detail__eyebrow-row">
           <p class="device-detail__eyebrow">device_id</p>
@@ -53,10 +47,17 @@ const formatThaiDate = (isoDate: string) =>
               'device-detail__status--online': isOnline,
               'device-detail__status--offline': !isOnline,
             }"
-            :title="isOnline ? 'online' : 'offline'"
           >
             <span class="device-detail__status-dot" />
             {{ isOnline ? 'ออนไลน์' : 'ออฟไลน์' }}
+          </span>
+          <span
+            v-if="isOnline && brightness !== 'off'"
+            class="device-detail__brightness"
+            :class="`device-detail__brightness--${brightness}`"
+          >
+            {{ BRIGHTNESS_LABELS[brightness] }}
+            <span v-if="deviceMode === 'auto'" class="device-detail__brightness-auto">· อัตโนมัติ</span>
           </span>
         </div>
         <h1 class="device-detail__id">{{ device.id }}</h1>
@@ -107,75 +108,38 @@ const formatThaiDate = (isoDate: string) =>
 .device-detail {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-  max-width: 32rem;
+  gap: 1rem;
+  max-width: 30rem;
   margin: 0 auto;
 }
 
 .device-detail__hero {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.9rem;
+  padding: 0.15rem 0;
 }
 
-.device-detail__stage {
-  display: grid;
-  place-items: center;
-  width: 6.5rem;
-  height: 8rem;
-  border-radius: var(--radius-lg);
-  background:
-    radial-gradient(circle at 50% 30%, rgba(148, 163, 184, 0.18), rgba(2, 6, 23, 0.5) 70%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
-  border: 1px solid var(--stroke);
+.device-detail__bulb {
   flex-shrink: 0;
-  overflow: hidden;
-  position: relative;
-  transition: background 0.45s ease;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 18px 44px rgba(0, 0, 0, 0.4);
-}
-
-.device-detail__stage::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 16px 16px;
-  mask-image: radial-gradient(ellipse at center, black 0%, transparent 72%);
-  opacity: 0.32;
-  pointer-events: none;
-}
-
-.device-detail__stage--on {
-  background:
-    radial-gradient(circle at 50% 32%, rgba(250, 204, 21, 0.22), rgba(2, 6, 23, 0.5) 65%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
-}
-
-.device-detail__stage--offline {
-  opacity: 0.55;
-  filter: grayscale(0.55);
 }
 
 .device-detail__info {
   min-width: 0;
+  flex: 1;
 }
 
 .device-detail__eyebrow-row {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  margin: 0 0 0.2rem;
+  gap: 0.5rem;
+  margin: 0 0 0.35rem;
   flex-wrap: wrap;
 }
 
 .device-detail__eyebrow {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -213,6 +177,34 @@ const formatThaiDate = (isoDate: string) =>
   border-color: rgba(248, 113, 113, 0.42);
 }
 
+.device-detail__brightness {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.device-detail__brightness--low {
+  color: #fde68a;
+  background: rgba(250, 204, 21, 0.16);
+  border-color: rgba(250, 204, 21, 0.38);
+}
+
+.device-detail__brightness--high {
+  color: #bbf7d0;
+  background: rgba(74, 222, 128, 0.16);
+  border-color: rgba(74, 222, 128, 0.4);
+}
+
+.device-detail__brightness-auto {
+  opacity: 0.85;
+  font-weight: 500;
+}
+
 .device-detail__id {
   margin: 0;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
@@ -224,35 +216,35 @@ const formatThaiDate = (isoDate: string) =>
 }
 
 .device-detail__location {
-  margin: 0.3rem 0 0;
+  margin: 0.25rem 0 0;
   color: var(--muted);
   font-size: 0.95rem;
 }
 
 .device-detail__created {
   margin: 0.2rem 0 0;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   color: rgba(148, 163, 184, 0.85);
 }
 
 .device-detail__tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.35rem;
-  padding: 0.3rem;
+  gap: 0.3rem;
+  padding: 0.28rem;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.28);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .device-detail__tab {
-  padding: 0.55rem 0.75rem;
+  padding: 0.5rem 0.7rem;
   border: 0;
   background: transparent;
   border-radius: 999px;
   color: rgba(226, 232, 240, 0.75);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -266,7 +258,7 @@ const formatThaiDate = (isoDate: string) =>
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.12) inset,
-    0 10px 28px rgba(0, 0, 0, 0.35);
+    0 8px 22px rgba(0, 0, 0, 0.3);
 }
 
 .device-detail__tab:focus-visible {

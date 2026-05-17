@@ -2,12 +2,13 @@ import mqtt, { type MqttClient } from 'mqtt'
 import { nanoid } from 'nanoid'
 import { env } from '../config/env.ts'
 import { logger } from '../lib/logger.ts'
+import { OUTPUT_IDS, type OutputId } from '../models/Device.ts'
 import * as devices from './devices.ts'
 import * as pairing from './pairing.ts'
 
 let client: MqttClient | null = null
 
-type PendingCommand = { deviceId: string; timer: NodeJS.Timeout }
+type PendingCommand = { deviceId: string; outputId: OutputId; timer: NodeJS.Timeout }
 const pending = new Map<string, PendingCommand>()
 
 const safeJsonParse = <T>(buf: Buffer): T | null => {
@@ -33,15 +34,38 @@ const handleMessage = async (topic: string, payload: Buffer) => {
   const ackMatch = topic.match(/^dev\/([^/]+)\/ack$/)
   if (ackMatch) {
     const deviceId = ackMatch[1]!
-    const data = safeJsonParse<{ cmdId?: string; status?: 'applied' | 'error'; isOn?: boolean }>(payload)
+    const data = safeJsonParse<{
+      cmdId?: string
+      status?: 'applied' | 'error'
+      output?: string
+      isOn?: boolean
+    }>(payload)
     if (!data?.cmdId || !data.status) return
     const entry = pending.get(data.cmdId)
     if (entry) {
       clearTimeout(entry.timer)
       pending.delete(data.cmdId)
+      if (data.output && data.output !== entry.outputId) {
+        logger.warn(
+          { deviceId, cmdId: data.cmdId, sent: entry.outputId, acked: data.output },
+          'ack output differs from cmd output — trusting ack',
+        )
+      }
+    }
+    const outputId = (data.output && (OUTPUT_IDS as readonly string[]).includes(data.output))
+      ? (data.output as OutputId)
+      : entry?.outputId
+    if (!outputId) {
+      logger.warn({ deviceId, cmdId: data.cmdId }, 'ack missing output and no pending entry — dropping')
+      return
     }
     try {
-      await devices.handleAck(deviceId, { cmdId: data.cmdId, status: data.status, isOn: data.isOn })
+      await devices.handleAck(deviceId, {
+        cmdId: data.cmdId,
+        status: data.status,
+        output: outputId,
+        isOn: data.isOn,
+      })
     } catch (err) {
       logger.warn({ err, deviceId }, 'devices.handleAck failed')
     }
@@ -51,7 +75,11 @@ const handleMessage = async (topic: string, payload: Buffer) => {
   const hbMatch = topic.match(/^dev\/([^/]+)\/hb$/)
   if (hbMatch) {
     const deviceId = hbMatch[1]!
-    const data = safeJsonParse<{ isOn?: boolean; rssi?: number; uptime?: number }>(payload) ?? {}
+    const data = safeJsonParse<{
+      outputs?: Partial<Record<OutputId, { isOn?: boolean }>>
+      rssi?: number
+      uptime?: number
+    }>(payload) ?? {}
     try {
       await devices.handleHeartbeat(deviceId, data)
     } catch (err) {
@@ -113,12 +141,17 @@ export const connect = async (): Promise<void> => {
   })
 }
 
-export const publishCommand = async (deviceId: string, isOn: boolean): Promise<{ cmdId: string }> => {
+export const publishCommand = async (
+  deviceId: string,
+  outputId: OutputId,
+  isOn: boolean,
+): Promise<{ cmdId: string }> => {
   if (!client?.connected) throw new Error('mqtt not connected')
   const cmdId = nanoid(10)
   const payload = JSON.stringify({
     cmd_id: cmdId,
     action: 'set_state',
+    output: outputId,
     isOn,
     ts: new Date().toISOString(),
   })
@@ -130,12 +163,12 @@ export const publishCommand = async (deviceId: string, isOn: boolean): Promise<{
   })
   const timer = setTimeout(() => {
     pending.delete(cmdId)
-    devices.handleCmdTimeout(deviceId, cmdId).catch((err) =>
-      logger.warn({ err, deviceId, cmdId }, 'cmd_timeout log failed'),
+    devices.handleCmdTimeout(deviceId, outputId, cmdId).catch((err) =>
+      logger.warn({ err, deviceId, outputId, cmdId }, 'cmd_timeout log failed'),
     )
   }, env.ACK_TIMEOUT_MS)
   timer.unref()
-  pending.set(cmdId, { deviceId, timer })
+  pending.set(cmdId, { deviceId, outputId, timer })
   return { cmdId }
 }
 
