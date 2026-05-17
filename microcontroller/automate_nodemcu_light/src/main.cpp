@@ -51,7 +51,8 @@ static const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
 #define VC02_RX_PIN D7
 #define VC02_TX_PIN D5
 #define VC02_BAUD 115200
-#define LISTENING_TIMEOUT_MS 10000UL
+// ESP ไม่ track wake state เอง — เชื่อ VC-02 ที่ gating internal:
+// ถ้า packet มาถึง ESP แสดงว่า module ยังฟังอยู่ apply ตรงๆ
 
 // VC-02 5-byte protocol: [0x5a, cmd, 0x00, 0x00, checksum]
 // checksum = (byte0 + byte1 + byte2 + byte3) & 0xff
@@ -68,14 +69,6 @@ static const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 SoftwareSerial vcSerial;
-
-enum VoiceState
-{
-  VS_IDLE,
-  VS_LISTENING
-};
-VoiceState voiceState = VS_IDLE;
-unsigned long listeningStartMs = 0;
 
 String deviceId;     // empty if not paired
 String macClean;     // AA:BB:CC:DD:EE:FF (uppercase)
@@ -217,42 +210,14 @@ void publishVoiceUpdate(bool changed)
 
 void handleVoiceCommand(uint8_t cmd)
 {
-  Serial.printf("[vc02] cmd=0x%02x state=%s\n", cmd,
-                voiceState == VS_LISTENING ? "LISTENING" : "IDLE");
-
-  switch (cmd)
-  {
-  case VC02_CMD_WAKE:
-    Serial.println("[vc02] WAKE — entering LISTENING");
-    voiceState = VS_LISTENING;
-    listeningStartMs = millis();
-    return;
-  case VC02_CMD_EXIT:
-    Serial.println("[vc02] EXIT — back to IDLE");
-    voiceState = VS_IDLE;
-    return;
-  }
-
-  // strict 10s window จาก wake — ไม่ refresh timer ตอนรับคำสั่ง control
-  if (voiceState != VS_LISTENING)
-  {
-    Serial.printf("[vc02] ignored cmd=0x%02x — not in listening mode\n", cmd);
-    return;
-  }
-  if (millis() - listeningStartMs > LISTENING_TIMEOUT_MS)
-  {
-    Serial.printf("[vc02] ignored cmd=0x%02x — listening window expired\n", cmd);
-    voiceState = VS_IDLE;
-    return;
-  }
-
-  // refresh listening window — ทุกคำสั่ง valid จะ extend session อีก 10s
-  // (inactivity-based แทน fixed-from-wake) เพื่อให้ chain คำสั่งได้
-  listeningStartMs = millis();
+  Serial.printf("[vc02] cmd=0x%02x\n", cmd);
 
   bool a, b;
   switch (cmd)
   {
+  case VC02_CMD_WAKE: // VC-02 รายงานว่าเข้า wake state — informational
+  case VC02_CMD_EXIT: // VC-02 รายงานว่าออก wake state — informational
+    return;
   case VC02_CMD_TURN_ON: // เปิดดวง 1 (cold)
   case VC02_CMD_COLD_ON: // alias
     publishVoiceUpdate(applyLight(0, true));
@@ -263,7 +228,7 @@ void handleVoiceCommand(uint8_t cmd)
   case VC02_CMD_WARM_OFF: // ปิดเฉพาะดวง 2 (warm)
     publishVoiceUpdate(applyLight(1, false));
     break;
-  case VC02_CMD_TURN_OFF: // ปิดหมด — only TurnOff เป็น kill-all
+  case VC02_CMD_TURN_OFF: // ปิดหมด
     a = applyLight(0, false);
     b = applyLight(1, false);
     publishVoiceUpdate(a || b);
@@ -305,14 +270,6 @@ void pollVc02()
                     vcBuf[0], vcBuf[1], vcBuf[2], vcBuf[3], vcBuf[4]);
     }
     vcBufLen = 0;
-  }
-
-  // listening window timeout
-  if (voiceState == VS_LISTENING &&
-      millis() - listeningStartMs > LISTENING_TIMEOUT_MS)
-  {
-    Serial.println("[vc02] listening timeout — back to IDLE");
-    voiceState = VS_IDLE;
   }
 }
 
