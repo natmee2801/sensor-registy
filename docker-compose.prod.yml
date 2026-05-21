@@ -1,0 +1,34 @@
+services:
+  backend:
+    build:
+      context: ./application/backend
+    container_name: sensor-registry-backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+      - mosquitto
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MONGODB_URI: mongodb://mongo:27017/sensor_registry
+      MQTT_URL: mqtt://mosquitto:1883
+      FRONTEND_URL: http://localhost:3000
+      ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY required}
+      LOG_LEVEL: info
+      ACK_TIMEOUT_MS: 5000
+      HEARTBEAT_GRACE_MS: 90000
+    init: true
+
+  frontend:
+    build:
+      context: ./application/frontend
+      args:
+        VITE_API_URL: ""
+    container_name: sensor-registry-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
