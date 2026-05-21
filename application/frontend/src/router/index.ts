@@ -10,11 +10,6 @@ const router = createRouter({
       component: DevicesView,
     },
     {
-      path: '/register',
-      name: 'register-device',
-      component: () => import('@/views/RegisterDeviceView.vue'),
-    },
-    {
       path: '/devices/:id',
       name: 'device-detail',
       component: () => import('@/views/DeviceDetailView.vue'),

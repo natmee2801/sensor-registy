@@ -18,9 +18,8 @@ onUnmounted(() => {
 
 <template>
   <main class="page">
-    <div class="page__glow page__glow--1" aria-hidden="true" />
-    <div class="page__glow page__glow--2" aria-hidden="true" />
-    <div class="page__grid" aria-hidden="true" />
+    <div class="page__wash page__wash--1" aria-hidden="true" />
+    <div class="page__wash page__wash--2" aria-hidden="true" />
 
     <div class="page__shell">
       <AppNav />
@@ -33,7 +32,7 @@ onUnmounted(() => {
 .page {
   position: relative;
   isolation: isolate;
-  padding: clamp(1rem, 4vw, 2.5rem);
+  padding: clamp(0.75rem, 2.5vw, 1.4rem) clamp(1rem, 3vw, 1.6rem) clamp(1.25rem, 3vw, 2rem);
   font-family: var(--font);
   color: var(--text);
   overflow-x: clip;
@@ -41,43 +40,33 @@ onUnmounted(() => {
 
 .page__shell {
   position: relative;
-  width: min(100%, 44rem);
+  width: min(100%, 46rem);
   margin: 0 auto;
 }
 
-.page__glow {
+.page__wash {
   position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.page__wash--1 {
+  top: -22vh;
+  left: -12vw;
+  width: min(48rem, 95vw);
+  height: min(48rem, 95vw);
+  background: radial-gradient(circle, rgba(252, 211, 77, 0.22), transparent 65%);
+  opacity: 0.85;
+}
+
+.page__wash--2 {
+  bottom: -24vh;
+  right: -16vw;
   width: min(42rem, 90vw);
   height: min(42rem, 90vw);
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.55;
-  z-index: -1;
-  pointer-events: none;
-}
-
-.page__glow--1 {
-  top: -10vh;
-  left: -10vw;
-  background: rgba(56, 189, 248, 0.35);
-}
-
-.page__glow--2 {
-  bottom: -15vh;
-  right: -12vw;
-  background: rgba(167, 139, 250, 0.32);
-}
-
-.page__grid {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  opacity: 0.22;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse at 50% 0%, black 0%, transparent 68%);
-  pointer-events: none;
+  background: radial-gradient(circle, rgba(234, 88, 12, 0.18), transparent 65%);
+  opacity: 0.85;
 }
 </style>

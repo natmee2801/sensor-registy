@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express'
+import type { OutputId } from '../models/Device.ts'
 import * as service from '../services/devices.ts'
 
 export const list: RequestHandler = async (req, res, next) => {
@@ -6,16 +7,6 @@ export const list: RequestHandler = async (req, res, next) => {
     const q = typeof req.query.q === 'string' ? req.query.q : undefined
     const items = await service.listDevices(q)
     res.json(items)
-  } catch (err) {
-    next(err)
-  }
-}
-
-export const create: RequestHandler = async (req, res, next) => {
-  try {
-    const { id, location } = req.body as { id: string; location: string }
-    const device = await service.registerDevice(id, location)
-    res.status(201).json(device)
   } catch (err) {
     next(err)
   }
@@ -41,7 +32,20 @@ export const remove: RequestHandler = async (req, res, next) => {
 
 export const toggle: RequestHandler = async (req, res, next) => {
   try {
-    const device = await service.toggleDevice(req.params.id as string)
+    const device = await service.toggleDevice(
+      req.params.id as string,
+      req.params.outputId as OutputId,
+    )
+    res.json(device)
+  } catch (err) {
+    next(err)
+  }
+}
+
+export const toggleAll: RequestHandler = async (req, res, next) => {
+  try {
+    const { isOn } = req.body as { isOn: boolean }
+    const device = await service.toggleAll(req.params.id as string, isOn)
     res.json(device)
   } catch (err) {
     next(err)
@@ -51,7 +55,11 @@ export const toggle: RequestHandler = async (req, res, next) => {
 export const setMode: RequestHandler = async (req, res, next) => {
   try {
     const { mode } = req.body as { mode: 'manual' | 'auto' }
-    const device = await service.setMode(req.params.id as string, mode)
+    const device = await service.setMode(
+      req.params.id as string,
+      req.params.outputId as OutputId,
+      mode,
+    )
     res.json(device)
   } catch (err) {
     next(err)
@@ -64,7 +72,12 @@ export const setAutoTimes: RequestHandler = async (req, res, next) => {
       autoOnTime: string
       autoOffTime: string
     }
-    const device = await service.setAutoTimes(req.params.id as string, autoOnTime, autoOffTime)
+    const device = await service.setAutoTimes(
+      req.params.id as string,
+      req.params.outputId as OutputId,
+      autoOnTime,
+      autoOffTime,
+    )
     res.json(device)
   } catch (err) {
     next(err)
@@ -74,7 +87,11 @@ export const setAutoTimes: RequestHandler = async (req, res, next) => {
 export const startOffTimer: RequestHandler = async (req, res, next) => {
   try {
     const { durationMs } = req.body as { durationMs: number }
-    const device = await service.startOffTimer(req.params.id as string, durationMs)
+    const device = await service.startOffTimer(
+      req.params.id as string,
+      req.params.outputId as OutputId,
+      durationMs,
+    )
     res.json(device)
   } catch (err) {
     next(err)
@@ -83,7 +100,10 @@ export const startOffTimer: RequestHandler = async (req, res, next) => {
 
 export const cancelOffTimer: RequestHandler = async (req, res, next) => {
   try {
-    const device = await service.cancelOffTimer(req.params.id as string)
+    const device = await service.cancelOffTimer(
+      req.params.id as string,
+      req.params.outputId as OutputId,
+    )
     res.json(device)
   } catch (err) {
     next(err)
