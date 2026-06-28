@@ -11,11 +11,12 @@ sensor-registy/
 ├── microcontroller/
 │   └── automate_nodemcu_light/            ESP8266 firmware (PlatformIO + PubSubClient)
 ├── mosquitto/config/mosquitto.conf        broker config
-├── docker-compose.yml                     MongoDB 7 + Mosquitto 2
+├── docker-compose.yml                     MongoDB 7 + Mosquitto 2 (dev infra)
+├── docker-compose.prod.yml                + backend + frontend (production overlay)
 └── CLAUDE.md                              สถาปัตยกรรม / event flow / topic table
 ```
 
-## เริ่มต้นใช้งาน
+## เริ่มต้นใช้งาน (dev)
 
 ต้องมี: Node.js 22+, npm, Docker. (firmware: PlatformIO + NodeMCU v2)
 
@@ -36,6 +37,19 @@ npm install
 npm run dev
 # → http://localhost:5173
 ```
+
+## Production deployment
+
+รันทั้ง stack ใน Docker (frontend nginx serve + proxy /api → backend):
+
+```sh
+cp .env.example .env   # ตั้ง ADMIN_KEY
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# → frontend http://localhost:3000   (proxy /api ไป backend container)
+# → backend  http://localhost:3001   (debug direct)
+```
+
+วิธี deploy เต็ม + verification + troubleshooting ดู [`docs/deploy.md`](./docs/deploy.md)
 
 ## การเชื่อม device จริง (Announce & Claim)
 
