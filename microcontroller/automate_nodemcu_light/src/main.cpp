@@ -17,20 +17,20 @@
 #define MQTT_PORT 1883
 #endif
 
-// 2-output lighting: out1 on built-in LED (active-low), out2 on D2 (active-high)
+// 2-output lighting: both channels drive an external 2-ch low-trigger relay module
+// (IN=LOW → coil energized → NO closed). VC-02 ครอง D5/D7 — D1+D6 เป็น boot-safe GPIO ที่ยังว่าง
+// ดู wiring + ASCII diagram ที่ ../WIRING.md
 #ifndef LIGHT_PIN_OUT1
-#define LIGHT_PIN_OUT1 LED_BUILTIN
+#define LIGHT_PIN_OUT1 D1   // GPIO5  → relay IN1
 #endif
 #ifndef LIGHT_PIN_OUT2
-#define LIGHT_PIN_OUT2 D2
+#define LIGHT_PIN_OUT2 D6   // GPIO12 → relay IN2
 #endif
-// out1 is the built-in LED on NodeMCU which is active-LOW
-// out2 is a generic GPIO; configure ACTIVE_LOW_OUT2 if your relay is also active-low
 #ifndef ACTIVE_LOW_OUT1
 #define ACTIVE_LOW_OUT1 1
 #endif
 #ifndef ACTIVE_LOW_OUT2
-#define ACTIVE_LOW_OUT2 0
+#define ACTIVE_LOW_OUT2 1
 #endif
 
 #define FW_VERSION "2.0.0"
