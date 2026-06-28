@@ -9,41 +9,47 @@ import {
   logsQuerySchema,
   modeBodySchema,
   offTimerBodySchema,
-  registerBodySchema,
+  outputIdParamSchema,
+  toggleAllBodySchema,
 } from '../schemas/device.zod.ts'
 
 export const devicesRouter = Router()
 
 devicesRouter.get('/', validate(listQuerySchema, 'query'), controller.list)
-devicesRouter.post('/', validate(registerBodySchema, 'body'), controller.create)
 devicesRouter.get('/:id', validate(idParamSchema, 'params'), controller.getOne)
 devicesRouter.delete('/:id', validate(idParamSchema, 'params'), controller.remove)
 devicesRouter.post(
-  '/:id/toggle',
+  '/:id/toggle-all',
   validate(idParamSchema, 'params'),
+  validate(toggleAllBodySchema, 'body'),
+  controller.toggleAll,
+)
+devicesRouter.post(
+  '/:id/outputs/:outputId/toggle',
+  validate(outputIdParamSchema, 'params'),
   controller.toggle,
 )
 devicesRouter.patch(
-  '/:id/mode',
-  validate(idParamSchema, 'params'),
+  '/:id/outputs/:outputId/mode',
+  validate(outputIdParamSchema, 'params'),
   validate(modeBodySchema, 'body'),
   controller.setMode,
 )
 devicesRouter.patch(
-  '/:id/auto-times',
-  validate(idParamSchema, 'params'),
+  '/:id/outputs/:outputId/auto-times',
+  validate(outputIdParamSchema, 'params'),
   validate(autoTimesBodySchema, 'body'),
   controller.setAutoTimes,
 )
 devicesRouter.post(
-  '/:id/off-timer',
-  validate(idParamSchema, 'params'),
+  '/:id/outputs/:outputId/off-timer',
+  validate(outputIdParamSchema, 'params'),
   validate(offTimerBodySchema, 'body'),
   controller.startOffTimer,
 )
 devicesRouter.delete(
-  '/:id/off-timer',
-  validate(idParamSchema, 'params'),
+  '/:id/outputs/:outputId/off-timer',
+  validate(outputIdParamSchema, 'params'),
   controller.cancelOffTimer,
 )
 devicesRouter.get(

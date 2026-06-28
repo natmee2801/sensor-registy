@@ -6,6 +6,7 @@ import { useDevicesStore } from '@/stores/devices'
 import DeviceControl from '@/components/DeviceControl.vue'
 import DeviceHistory from '@/components/DeviceHistory.vue'
 import BulbVisual from '@/components/BulbVisual.vue'
+import { BRIGHTNESS_LABELS, type BrightnessLevel } from '@/types/device'
 
 const props = defineProps<{ id: string }>()
 
@@ -14,7 +15,10 @@ const store = useDevicesStore()
 const { devices, states } = storeToRefs(store)
 
 const device = computed(() => devices.value[props.id] ?? null)
-const isOn = computed(() => states.value[props.id]?.isOn ?? false)
+const state = computed(() => states.value[props.id] ?? null)
+const isOnline = computed(() => state.value?.isOnline ?? false)
+const brightness = computed<BrightnessLevel>(() => store.getBrightness(props.id))
+const deviceMode = computed(() => store.getDeviceMode(props.id))
 
 const activeTab = ref<'control' | 'history'>('control')
 
@@ -31,24 +35,45 @@ const formatThaiDate = (isoDate: string) =>
 </script>
 
 <template>
-  <section v-if="device" class="device-detail">
-    <header class="device-detail__hero">
-      <div class="device-detail__stage" :class="{ 'device-detail__stage--on': isOn }">
-        <BulbVisual :on="isOn" size="lg" />
+  <section v-if="device" class="detail">
+    <RouterLink to="/" class="detail__back">
+      <span aria-hidden="true">←</span>
+      <span>กลับ</span>
+    </RouterLink>
+
+    <header class="detail__hero">
+      <div class="detail__bulb-frame" :class="{ 'detail__bulb-frame--lit': isOnline && brightness !== 'off' }">
+        <BulbVisual :level="isOnline ? brightness : 'off'" size="lg" />
       </div>
-      <div class="device-detail__info">
-        <p class="device-detail__eyebrow">device_id</p>
-        <h1 class="device-detail__id">{{ device.id }}</h1>
-        <p class="device-detail__location">{{ device.location }}</p>
-        <p class="device-detail__created">ลงทะเบียนเมื่อ · {{ formatThaiDate(device.createdAt) }}</p>
+      <div class="detail__info">
+        <div class="detail__chip-row">
+          <span
+            class="chip"
+            :class="isOnline ? 'chip--online' : 'chip--offline'"
+          >
+            <span class="chip__dot" />
+            {{ isOnline ? 'ออนไลน์' : 'ออฟไลน์' }}
+          </span>
+          <span
+            v-if="isOnline && brightness !== 'off'"
+            class="chip"
+            :class="`chip--${brightness}`"
+          >
+            {{ BRIGHTNESS_LABELS[brightness] }}
+            <span v-if="deviceMode === 'auto'" class="chip__suffix">· อัตโนมัติ</span>
+          </span>
+        </div>
+        <h1 class="detail__id">{{ device.id }}</h1>
+        <p class="detail__location">{{ device.location }}</p>
+        <p class="detail__created">ลงทะเบียนเมื่อ · {{ formatThaiDate(device.createdAt) }}</p>
       </div>
     </header>
 
-    <div class="device-detail__tabs" role="tablist">
+    <div class="detail__tabs" role="tablist">
       <button
         type="button"
-        class="device-detail__tab"
-        :class="{ 'device-detail__tab--active': activeTab === 'control' }"
+        class="detail__tab"
+        :class="{ 'detail__tab--active': activeTab === 'control' }"
         role="tab"
         :aria-selected="activeTab === 'control'"
         @click="activeTab = 'control'"
@@ -57,8 +82,8 @@ const formatThaiDate = (isoDate: string) =>
       </button>
       <button
         type="button"
-        class="device-detail__tab"
-        :class="{ 'device-detail__tab--active': activeTab === 'history' }"
+        class="detail__tab"
+        :class="{ 'detail__tab--active': activeTab === 'history' }"
         role="tab"
         :aria-selected="activeTab === 'history'"
         @click="activeTab = 'history'"
@@ -83,140 +108,202 @@ const formatThaiDate = (isoDate: string) =>
 </template>
 
 <style scoped>
-.device-detail {
+.detail {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.7rem;
   max-width: 32rem;
   margin: 0 auto;
 }
 
-.device-detail__hero {
+.detail__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: flex-start;
+  padding: 0.3rem 0.75rem 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: color 0.18s ease, transform 0.18s ease;
+}
+
+.detail__back:hover {
+  color: var(--accent-strong);
+  transform: translateX(-2px);
+}
+
+.detail__hero {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.85rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
-.device-detail__stage {
+.detail__bulb-frame {
   display: grid;
   place-items: center;
-  width: 6.5rem;
-  height: 8rem;
-  border-radius: var(--radius-lg);
-  background:
-    radial-gradient(circle at 50% 30%, rgba(148, 163, 184, 0.18), rgba(2, 6, 23, 0.5) 70%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 50%;
+  background: var(--surface-sunk);
   border: 1px solid var(--stroke);
   flex-shrink: 0;
-  overflow: hidden;
-  position: relative;
-  transition: background 0.45s ease;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.detail__bulb-frame--lit {
+  background: radial-gradient(circle, rgba(252, 211, 77, 0.32) 0%, rgba(245, 158, 11, 0.16) 55%, var(--surface-sunk) 100%);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 18px 44px rgba(0, 0, 0, 0.4);
+    0 0 0 4px rgba(245, 158, 11, 0.16),
+    0 0 24px rgba(252, 211, 77, 0.22);
+  border-color: rgba(245, 158, 11, 0.32);
 }
 
-.device-detail__stage::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 16px 16px;
-  mask-image: radial-gradient(ellipse at center, black 0%, transparent 72%);
-  opacity: 0.32;
-  pointer-events: none;
-}
-
-.device-detail__stage--on {
-  background:
-    radial-gradient(circle at 50% 32%, rgba(250, 204, 21, 0.22), rgba(2, 6, 23, 0.5) 65%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.95));
-}
-
-.device-detail__info {
+.detail__info {
   min-width: 0;
+  flex: 1;
 }
 
-.device-detail__eyebrow {
-  margin: 0 0 0.2rem;
-  font-size: 0.72rem;
+.detail__chip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.3rem;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
   font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(148, 163, 184, 0.95);
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
 }
 
-.device-detail__id {
+.chip__dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.chip--online {
+  color: var(--on-text);
+  background: var(--on-soft);
+  border-color: rgba(163, 230, 53, 0.28);
+}
+
+.chip--offline {
+  color: var(--offline-text);
+  background: var(--offline-soft);
+  border-color: rgba(251, 146, 60, 0.32);
+}
+
+.chip--low {
+  color: var(--warm);
+  background: var(--warm-soft);
+  border-color: rgba(252, 211, 77, 0.32);
+}
+
+.chip--high {
+  color: var(--warm-strong);
+  background: var(--accent-soft);
+  border-color: rgba(245, 158, 11, 0.38);
+}
+
+.chip__suffix {
+  opacity: 0.85;
+  font-weight: 500;
+}
+
+.detail__id {
   margin: 0;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: clamp(1.25rem, 4vw, 1.55rem);
+  font-size: clamp(1.05rem, 3vw, 1.25rem);
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--text);
   word-break: break-all;
 }
 
-.device-detail__location {
-  margin: 0.3rem 0 0;
+.detail__location {
+  margin: 0.15rem 0 0;
+  color: var(--text-2);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.detail__created {
+  margin: 0.1rem 0 0;
+  font-size: 0.7rem;
   color: var(--muted);
-  font-size: 0.95rem;
 }
 
-.device-detail__created {
-  margin: 0.2rem 0 0;
-  font-size: 0.78rem;
-  color: rgba(148, 163, 184, 0.85);
-}
-
-.device-detail__tabs {
+.detail__tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.35rem;
-  padding: 0.3rem;
+  gap: 0.22rem;
+  padding: 0.22rem;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
-.device-detail__tab {
-  padding: 0.55rem 0.75rem;
+.detail__tab {
+  padding: 0.42rem 0.7rem;
   border: 0;
   background: transparent;
   border-radius: 999px;
-  color: rgba(226, 232, 240, 0.75);
+  color: var(--text-2);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    color 0.2s ease,
-    background 0.2s ease,
-    box-shadow 0.2s ease;
+  transition: color 0.18s ease, background 0.18s ease;
 }
 
-.device-detail__tab--active {
-  color: var(--text);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.12) inset,
-    0 10px 28px rgba(0, 0, 0, 0.35);
+.detail__tab:hover { color: var(--text); }
+
+.detail__tab--active {
+  color: var(--warm-strong);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.28);
 }
 
-.device-detail__tab:focus-visible {
-  outline: 2px solid rgba(56, 189, 248, 0.55);
+.detail__tab:focus-visible {
+  outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
 }
 
 .not-found {
   max-width: 30rem;
   margin: 2rem auto;
-  padding: 1.6rem;
+  padding: 1.8rem;
   text-align: center;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: var(--surface);
-  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border: 1px dashed var(--stroke-strong);
 }
 
 .not-found__title {
@@ -228,7 +315,7 @@ const formatThaiDate = (isoDate: string) =>
 
 .not-found__body {
   margin: 0.55rem 0 1.1rem;
-  color: var(--muted);
+  color: var(--text-2);
   font-size: 0.9rem;
 }
 
@@ -239,7 +326,5 @@ const formatThaiDate = (isoDate: string) =>
   text-decoration: none;
 }
 
-.not-found__link:hover {
-  text-decoration: underline;
-}
+.not-found__link:hover { text-decoration: underline; }
 </style>
