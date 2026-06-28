@@ -11,7 +11,7 @@
 #endif
 
 #ifndef MQTT_HOST
-#define MQTT_HOST "192.168.1.100"
+#define MQTT_HOST "172.25.144.1"
 #endif
 #ifndef MQTT_PORT
 #define MQTT_PORT 1883
@@ -27,10 +27,10 @@
 #define LIGHT_PIN_OUT2 D6   // GPIO12 → relay IN2
 #endif
 #ifndef ACTIVE_LOW_OUT1
-#define ACTIVE_LOW_OUT1 1
+#define ACTIVE_LOW_OUT1 0
 #endif
 #ifndef ACTIVE_LOW_OUT2
-#define ACTIVE_LOW_OUT2 1
+#define ACTIVE_LOW_OUT2 0
 #endif
 
 #define FW_VERSION "2.0.0"
