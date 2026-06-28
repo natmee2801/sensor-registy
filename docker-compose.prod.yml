@@ -19,6 +19,7 @@ services:
       LOG_LEVEL: info
       ACK_TIMEOUT_MS: 5000
       HEARTBEAT_GRACE_MS: 90000
+      TZ: Asia/Bangkok
     init: true
 
   frontend:
