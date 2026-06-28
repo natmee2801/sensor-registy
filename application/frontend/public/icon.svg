@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Light control icon">
+  <rect width="512" height="512" rx="120" fill="#0f172a"/>
+  <circle cx="256" cy="256" r="148" fill="#facc15"/>
+  <path d="M256 92v60" stroke="#ffffff" stroke-width="28" stroke-linecap="round"/>
+  <path d="M256 360v60" stroke="#ffffff" stroke-width="28" stroke-linecap="round"/>
+  <path d="M92 256h60" stroke="#ffffff" stroke-width="28" stroke-linecap="round"/>
+  <path d="M360 256h60" stroke="#ffffff" stroke-width="28" stroke-linecap="round"/>
+  <path d="M147 147l42 42" stroke="#ffffff" stroke-width="28" stroke-linecap="round"/>
+  <path d="M323 323l42 42" stroke="#ffffff" stroke-width="28" stroke-linecap="round"/>
+  <path d="M147 365l42-42" stroke="#ffffff" stroke-width="28" stroke-linecap="round"/>
+  <path d="M323 189l42-42" stroke="#ffffff" stroke-width="28" stroke-linecap="round"/>
+</svg>

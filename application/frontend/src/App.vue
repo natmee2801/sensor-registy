@@ -1,13 +1,32 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { RouterView } from 'vue-router'
 import AppNav from '@/components/AppNav.vue'
+import SplashScreen from '@/components/SplashScreen.vue'
 import { useDevicesStore } from '@/stores/devices'
 
 const store = useDevicesStore()
+const showSplash = ref(true)
 
 onMounted(() => {
-  store.refreshAll().catch(() => {})
+  // Ensure the splash shows for at least `minSplashMs`, with a max fallback.
+  const minSplashMs = 2500
+  const maxFallbackMs = 8000
+  const start = Date.now()
+  const fallback = setTimeout(() => (showSplash.value = false), maxFallbackMs)
+
+  store.refreshAll()
+    .catch(() => {})
+    .finally(() => {
+      const elapsed = Date.now() - start
+      const remaining = Math.max(0, minSplashMs - elapsed)
+      // small post-load easing time
+      setTimeout(() => {
+        showSplash.value = false
+        clearTimeout(fallback)
+      }, remaining + 420)
+    })
+
   store.subscribeEvents()
 })
 
@@ -18,6 +37,9 @@ onUnmounted(() => {
 
 <template>
   <main class="page">
+    <transition name="fade" appear>
+      <SplashScreen v-if="showSplash" class="splash-root" />
+    </transition>
     <div class="page__wash page__wash--1" aria-hidden="true" />
     <div class="page__wash page__wash--2" aria-hidden="true" />
 
@@ -29,6 +51,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.fade-enter-active { transition: opacity 360ms cubic-bezier(.16,.84,.26,1); }
+.fade-leave-active { transition: opacity 700ms cubic-bezier(.16,.84,.26,1), transform 700ms cubic-bezier(.16,.84,.26,1); }
+.fade-enter-from, .fade-leave-to { opacity: 0 }
+.fade-leave-to { transform: scale(0.98) translateY(-6px) }
+
 .page {
   position: relative;
   isolation: isolate;
