@@ -27,10 +27,10 @@
 #define LIGHT_PIN_OUT2 D6   // GPIO12 → relay IN2
 #endif
 #ifndef ACTIVE_LOW_OUT1
-#define ACTIVE_LOW_OUT1 1
+#define ACTIVE_LOW_OUT1 0
 #endif
 #ifndef ACTIVE_LOW_OUT2
-#define ACTIVE_LOW_OUT2 1
+#define ACTIVE_LOW_OUT2 0
 #endif
 
 #define FW_VERSION "2.0.0"
