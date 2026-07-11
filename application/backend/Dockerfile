@@ -1,6 +1,8 @@
 FROM node:22-alpine
 WORKDIR /app
 
+RUN apk add --no-cache tzdata
+
 COPY package.json package-lock.json* ./
 RUN npm ci
 

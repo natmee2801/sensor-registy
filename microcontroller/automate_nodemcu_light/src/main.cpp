@@ -11,7 +11,7 @@
 #endif
 
 #ifndef MQTT_HOST
-#define MQTT_HOST "192.168.1.100"
+#define MQTT_HOST "172.25.144.1"
 #endif
 #ifndef MQTT_PORT
 #define MQTT_PORT 1883
