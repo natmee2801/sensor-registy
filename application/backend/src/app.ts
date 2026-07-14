@@ -21,7 +21,9 @@ export const buildApp = (): Application => {
     }),
   )
   const allowedOrigins = env.FRONTEND_URL.split(',').map((o) => o.trim()).filter(Boolean)
-  app.use(cors({ origin: allowedOrigins }))
+  // FRONTEND_URL=* (หรือมี * ในลิสต์) = เปิดรับทุก origin — สะดวกเวลาเข้าจากมือถือ/หลาย IP บน LAN
+  const allowAllOrigins = allowedOrigins.includes('*')
+  app.use(cors({ origin: allowAllOrigins ? true : allowedOrigins }))
   app.use(express.json({ limit: '64kb' }))
 
   app.get('/api/health', (_req, res) => {

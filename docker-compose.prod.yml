@@ -14,7 +14,7 @@ services:
       PORT: 3000
       MONGODB_URI: mongodb://mongo:27017/sensor_registry
       MQTT_URL: mqtt://mosquitto:1883
-      FRONTEND_URL: http://localhost:3000
+      FRONTEND_URL: "*"
       ADMIN_KEY: ${ADMIN_KEY:?ADMIN_KEY required}
       LOG_LEVEL: info
       ACK_TIMEOUT_MS: 5000
