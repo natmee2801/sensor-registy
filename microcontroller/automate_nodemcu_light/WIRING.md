@@ -4,17 +4,19 @@ Firmware นี้ขับ relay module 2 channel แบบ **low-trigger** (IN
 
 ## Pinout
 
-| NodeMCU pin | GPIO | ทิศทาง | ใช้ทำอะไร | macro ใน `src/main.cpp` |
+| NodeMCU pin | GPIO | ทิศทาง | ใช้ทำอะไร | macro |
 |-------------|------|--------|----------|--------------------------|
 | **D1** | GPIO5  | OUT | → relay IN1 (ช่อง 1 = `out1` / cold) | `LIGHT_PIN_OUT1` |
 | **D6** | GPIO12 | OUT | → relay IN2 (ช่อง 2 = `out2` / warm) | `LIGHT_PIN_OUT2` |
 | **D5** | GPIO14 | OUT | → VC-02 RX (SoftwareSerial TX) | `VC02_TX_PIN` |
 | **D7** | GPIO13 | IN  | ← VC-02 TX (SoftwareSerial RX) | `VC02_RX_PIN` |
-| **D4** | GPIO2  | OUT | → LED built-in บนโมดูล ESP-12 (status LED, active-LOW) | `STATUS_LED_PIN` |
+| **D4** | GPIO2  | OUT | → LED built-in บนโมดูล ESP-12 (status LED, active-LOW) | `STATUS_LED_PIN` (`src/status_led.h`) |
 | **Vin** | — | 5V out | → relay VCC + VC-02 VCC | — |
 | **GND** | — | 0V | → relay GND + VC-02 GND | — |
 
 ทั้ง OUT1 และ OUT2 เป็น **active-LOW** (`ACTIVE_LOW_OUT1=1`, `ACTIVE_LOW_OUT2=1`) — `setLight(idx, true)` จะ `digitalWrite(LOW)` ทำให้ relay ติด
+
+macro ของ D1/D6/D5/D7 นิยามใน `src/main.cpp` ส่วน `STATUS_LED_PIN` / `STATUS_LED_ACTIVE_LOW` นิยามใน `src/status_led.h`
 
 **Pin ที่ตั้งใจปล่อยว่าง / หลีกเลี่ยง:**
 
@@ -40,7 +42,7 @@ Firmware นี้ขับ relay module 2 channel แบบ **low-trigger** (IN
                 │                  D5 ───┼─► VC-02 RX  │  (low-trigger)
                 │                  D7 ◄──┼─  VC-02 TX  │
                 │                        │             │
-                │ D4 → status LED (on-board) │   VCC ◄──┘  (จาก Vin 5V)
+                │ D4 -> status LED        │      VCC ◄──┘  (จาก Vin 5V)
                 │ D2      — ปล่อยว่าง     │      GND ◄──┐
                 │ D0/D3/D8 หลีกเลี่ยง     │             │
                 └────────────────────────┘             │
