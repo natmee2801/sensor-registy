@@ -547,13 +547,15 @@ Expected: `SUCCESS` ไม่มี warning เรื่อง unused function �
 | 2 | WiFi ต่อไม่ได้ | **ต้อง define `WIFI_SSID`/`WIFI_PASSWORD` ใน `secrets.h` ก่อน** (default ใน example คอมเมนต์ไว้ = ใช้ WiFiManager) แล้วใส่ password ผิด flash | ค้างกระพริบถี่จนครบ 30 วิ แล้ว reboot |
 | 4 | Unpaired | `pio.exe run -d ... -t erase` แล้ว flash ใหม่ | จบที่แว้บคู่ทุก 800ms (`pair/hello` ใน log) |
 | 7 | Captive portal | คอมเมนต์ `WIFI_SSID`/`WIFI_PASSWORD` ใน `secrets.h` + `-t erase` แล้ว flash | ตอน AP `light-setup-XXXX` ขึ้น → กระพริบช้า 200/200 |
-| 8 | **Restart ขณะ LED ติด** | กดปุ่ม RST 10 ครั้งรัว ๆ ตอนอยู่เคส 4 (แว้บคู่) | boot ผ่านทุกครั้ง — ไม่ค้าง ไม่มี log เงียบ |
+| 8 | **Software restart ขณะ LED ติด** | เข้าโหมด captive portal (เคส 7) แล้วเปิด `http://192.168.4.1/r` ซ้ำ 10 ครั้ง — restart ผ่าน `WiFiManager::handleReset()` ที่ guard ของเราครอบไม่ถึง ขณะ `LED_PORTAL` duty 50% มีโอกาสครึ่งหนึ่งที่ LED กำลังติดตอน restart | boot ผ่านทุกครั้ง ไม่ค้าง download mode (ดู serial log ว่ามี boot banner ครบ 10 รอบ) |
 
 **ช่วงกระพริบถี่อาจสั้นมากจนเกือบไม่เห็น** ถ้า WiFi ต่อติดภายใน 1-2 วิ — อันนี้ปกติ ไม่ใช่ fail ให้ยืนยันด้วย log `[wifi] connected ip=...` ว่ามันผ่าน state นั้นมาจริง ถ้าอยากเห็นชัดให้ทดสอบเคส 2 แทน
 
 เคส 7 คือตัวพิสูจน์สมมติฐานหลักของ design ว่า WiFiManager เรียก `delay()`/`yield()` ข้างในจริง (ยังไม่เคยอ่าน source ยืนยัน) **ถ้า LED ค้างแทนที่จะกระพริบตอนเปิด portal = สมมติฐานผิด** ให้หยุดแล้วรายงาน — fallback คือเปลี่ยนไปใช้ `timer1_attachInterrupt` ซึ่งต้องแก้ design ก่อน
 
-เคส 8 คือตัวจับ regression ของความเสี่ยง boot-strap GPIO2 โดยตรง
+เคส 8 คือตัวจับ regression ของความเสี่ยง boot-strap GPIO2 โดยตรง — เปลี่ยนจากเดิมที่เขียนว่า "กดปุ่ม RST 10 ครั้ง" เพราะปุ่ม RST ดึง EXT_RSTB ลง เคลียร์ทั้งชิปรวมถึง GPIO matrix → GPIO2 กลับเป็น input + pull-up เสมอ ต่อให้ลบ `ledStopForRestart()` ทิ้งทั้งหมดเคสนั้นก็ยังผ่าน 100% ไม่ได้ทดสอบอะไรจริง path ที่เสี่ยงจริงคือ **software restart ขณะ LED ติด** ซึ่ง WiFiManager เรียก `ESP.restart()` ของตัวเองได้จาก route `/r` ที่ guard ของเราครอบไม่ถึง — และเกิดตอน `LED_PORTAL` ที่ duty 50% พอดี นี่คือเคสเดียวที่ทดสอบ boot-strap hazard ได้จริง
+
+**หมายเหตุ:** ROM bootloader ของ ESP8266 พ่น boot log ออกทาง GPIO2 (UART1 TX) ที่ 74880 baud ทุกครั้งที่ reset → จะเห็น LED กระพริบรัวสั้น ๆ ~50 ms ก่อนเข้าช่วง `LED_BOOT` ที่ดับ ไม่ใช่บั๊ก อย่าเสียเวลาไล่ (สังเกตได้ชัดตอนไล่เคส 8)
 
 - [ ] **Step 14: Verify เคสที่ต้องมี backend + broker**
 
@@ -570,8 +572,12 @@ npm --prefix application/frontend run dev
 | 3 | Broker ตาย | `docker compose stop mosquitto` ตอน ESP online | แว้บทุก 2 วิ → เปลี่ยนเป็นแว้บทุก 400ms ภายใน ~60 วิ (keepalive) |
 | 5 | Claim จาก UI | กด Claim ที่แท็บ Pairing ตอน ESP อยู่เคส 4 | แว้บคู่ → restart → แว้บทุก 2 วิ |
 | 6 | Remove จาก UI | `DELETE /api/devices/{id}` (หรือกดลบใน UI) | ได้ wipe → restart → กลับไปแว้บคู่ |
+| 9 | WiFi หลุดหลังจาก online แล้ว | ปิด AP ตอน ESP อยู่ที่แว้บทุก 2 วิ (`LED_ONLINE`, ต่อจากเคส 5) → รอดู → เปิด AP กลับ | กลับไปกระพริบถี่ภายใน ~5 วิ แล้วพอ AP กลับมาไปแว้บ 400ms แล้วกลับมาแว้บ 2 วิ |
+| 10 | สั่งเสียง VC-02 ขณะ LED กระพริบ | พูดสั่งเปิด/ปิดไฟ 10 ครั้งตอน `LED_ONLINE` | relay ตอบทุกครั้ง ไม่มี `[vc02] checksum fail` ใน serial log |
 
 เคส 3 ต้องรอ keepalive timeout (`mqtt.setKeepAlive(60)`) — ไม่ใช่ทันที อย่าตัดสินว่า fail เร็วเกินไป
+
+เคส 9 กัน "router รีบูต/ไฟดับ" ซึ่งเป็น failure mode ที่เจอบ่อยที่สุดในการติดตั้งจริง — ไม่มีเคสไหนใน 1-8 แตะ path ที่ `loop()` เช็ค `WiFi.status()` เลย (เคส 2 ทดสอบ `connectWifi()` ตอน boot คนละ path) เคส 10 ปิดคำถามเรื่อง integration กับ SoftwareSerial ที่ 115200 บน D7/D5 ซึ่ง marginal อยู่แล้วบน ESP8266
 
 - [ ] **Step 15: Commit**
 

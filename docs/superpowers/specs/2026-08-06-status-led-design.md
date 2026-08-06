@@ -38,7 +38,9 @@ GPIO2 เป็น boot-strap pin — ROM bootloader อ่านค่าตอ
 
 ถ้า LED กำลังติดอยู่ (GPIO2 = LOW) แล้วโค้ดเรียก `ESP.restart()` พอดี → soft reset อาจอ่าน boot mode ผิดแล้วค้างที่ UART download mode
 
-**วิธีแก้:** ทุกจุดที่ restart ต้องเรียก `ledStopForRestart()` ก่อน — detach ticker + `digitalWrite(HIGH)` ให้ pin อยู่ในสถานะปลอดภัยแน่นอน ไม่พึ่งจังหวะของ pattern
+**วิธีแก้ (ครอบได้แค่บางส่วน):** ทุกจุดที่ **firmware เป็นคนเรียก `ESP.restart()` เอง** (4 จุดใน `main.cpp`) ต้องเรียก `ledStopForRestart()` ก่อน — detach ticker + `digitalWrite(HIGH)` ให้ pin อยู่ในสถานะปลอดภัยแน่นอน ไม่พึ่งจังหวะของ pattern
+
+**Path ที่ guard ครอบไม่ถึง:** WiFiManager v2.0.17 restart เครื่องเองได้จาก 3 route ในตัวไลบรารี (`handleReset()` → `/r`, `handleErase()` → `/erase`, OTA update เสร็จที่ `/u`) รวมถึง soft-WDT reset, exception/panic reset, และ brownout — ไม่มีทางแก้ library หรือดักได้จากโค้ดของเรา **ผลกระทบต่ำ:** soft reset เคลียร์ GPIO matrix ทำให้ GPIO2 กลับเป็น input และโมดูล ESP-12 มี pull-up ภายในที่ขานี้อยู่แล้ว → strap อ่าน HIGH โดยไม่ต้องพึ่ง guard ของเรา
 
 ---
 
@@ -167,10 +169,16 @@ state ที่เป็น "ผิดปกติ" ถูก encode เป็�
 | 4 | Unpaired | `pio run -t erase` แล้ว boot | จบที่แว้บคู่ 800ms |
 | 5 | Claim จาก UI | กด Claim ตอนอยู่เคส 4 | แว้บคู่ → restart → แว้บทุก 2 วิ |
 | 6 | Remove จาก UI | `DELETE /api/devices/{id}` | ได้ wipe → restart → กลับไปแว้บคู่ |
-| 7 | Captive portal | ไม่ define `WIFI_SSID` + ไม่มี saved credential | แว้บช้า 400/400 ตอนเปิด AP |
-| 8 | **Restart ขณะ LED ติด** | reboot ซ้ำ ๆ 10 ครั้ง (เคส 1) | boot ผ่านทุกครั้ง ไม่ค้าง download mode |
+| 7 | Captive portal | ไม่ define `WIFI_SSID` + ไม่มี saved credential | กระพริบช้า 200 on / 200 off (คาบ 400 ms) ตอนเปิด AP |
+| 8 | **Software restart ขณะ LED ติด** | เข้าโหมด captive portal (เคส 7) แล้วเปิด `http://192.168.4.1/r` ซ้ำ 10 ครั้ง — restart ผ่าน `WiFiManager::handleReset()` ที่ guard ของเราครอบไม่ถึง ขณะ `LED_PORTAL` duty 50% มีโอกาสครึ่งหนึ่งที่ LED กำลังติดตอน restart | boot ผ่านทุกครั้ง ไม่ค้าง download mode (ดู serial log ว่ามี boot banner ครบ 10 รอบ) |
+| 9 | WiFi หลุดหลังจาก online แล้ว | ปิด AP ตอน ESP อยู่ที่แว้บทุก 2 วิ (`LED_ONLINE`) → รอดู → เปิด AP กลับ | กลับไปกระพริบถี่ภายใน ~5 วิ แล้วพอ AP กลับมาไปแว้บ 400ms แล้วกลับมาแว้บ 2 วิ |
+| 10 | สั่งเสียง VC-02 ขณะ LED กระพริบ | พูดสั่งเปิด/ปิดไฟ 10 ครั้งตอน `LED_ONLINE` | relay ตอบทุกครั้ง ไม่มี `[vc02] checksum fail` ใน serial log |
 
-เคส 8 คือเคสที่ป้องกัน regression ของความเสี่ยง boot-strap โดยตรง
+เคส 8 คือเคสที่ป้องกัน regression ของความเสี่ยง boot-strap โดยตรง — เปลี่ยนจากเดิมที่เขียนว่า "กดปุ่ม RST" เพราะ hardware reset (ปุ่ม RST) ดึง EXT_RSTB ลง เคลียร์ทั้งชิปรวมถึง GPIO matrix → GPIO2 กลับเป็น input + pull-up เสมอ ต่อให้ลบ guard ทั้งหมดเคสนั้นก็ยังผ่าน 100% ไม่ได้ทดสอบอะไรจริง ต้องใช้ software restart ที่ guard ของเราครอบไม่ถึง (เช่น WiFiManager portal route) ถึงจะพิสูจน์ boot-strap hazard ได้จริง
+
+เคส 9 กัน "router รีบูต/ไฟดับ" ซึ่งเป็น failure mode ที่เจอบ่อยที่สุดในการติดตั้งจริง แต่ไม่มีเคสไหนใน 1-8 แตะ path นี้ (เคส 2 ทดสอบ `connectWifi()` ตอน boot คนละ path กับที่ `loop()` เช็ค `WiFi.status()`) เคส 10 ปิดคำถามเรื่อง SoftwareSerial ที่ 115200 บน D7/D5 (marginal บน ESP8266) ทำงานถูกต้องพร้อมกับ LED ที่ยัง tick อยู่หรือไม่
+
+**หมายเหตุ:** ROM bootloader ของ ESP8266 พ่น boot log ออกทาง GPIO2 (UART1 TX) ที่ 74880 baud ทุกครั้งที่ reset → จะเห็น LED กระพริบรัวสั้น ๆ ~50 ms ก่อนเข้าช่วง `LED_BOOT` ที่ดับ ไม่ใช่บั๊ก อย่าเสียเวลาไล่
 
 ---
 
