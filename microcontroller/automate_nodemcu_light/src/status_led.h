@@ -6,7 +6,9 @@
 //
 // ⚠ STATUS_LED_PIN default = GPIO2 (D4) ซึ่งเป็น boot-strap pin ต้อง HIGH ตอน reset
 //   ถ้า LED กำลังติด (GPIO2 = LOW) แล้วเรียก ESP.restart() บอร์ดอาจ boot เข้า
-//   UART download mode แล้วค้าง → ต้องเรียก ledStopForRestart() ก่อน restart ทุกจุด
+//   UART download mode แล้วค้าง → เรียก ledStopForRestart() ก่อน ESP.restart() ทุกจุด
+//   ที่ firmware เป็นคนสั่งเอง (path ที่ guard นี้ครอบไม่ถึง เช่น WiFiManager portal
+//   routes ดู WIRING.md หัวข้อ Status LED)
 
 #ifndef STATUS_LED_PIN
 #define STATUS_LED_PIN LED_BUILTIN // GPIO2 / D4
@@ -28,4 +30,7 @@ enum LedState : uint8_t
 
 void ledBegin();
 void ledSetState(LedState s);
+
+// เรียกก่อน ESP.restart() เท่านั้น — ต้องตามด้วย restart จริงเสมอ ห้ามเรียกแล้วปล่อยให้
+// firmware ทำงานต่อ เพราะ ticker ถูก detach ไปแล้ว ถ้าไม่ restart LED จะค้างดับเงียบ ๆ
 void ledStopForRestart();

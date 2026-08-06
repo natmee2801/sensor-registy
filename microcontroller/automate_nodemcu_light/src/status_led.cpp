@@ -14,7 +14,7 @@ struct LedPattern
 };
 
 // เรียงตาม enum LedState เป๊ะ ๆ — เพิ่ม state ต้องเพิ่มแถวที่นี่ด้วย
-static const LedPattern LED_PATTERNS[] = {
+static constexpr LedPattern LED_PATTERNS[] = {
     {0x00000000, 1},  // LED_BOOT             ดับตลอด
     {0b01, 2},        // LED_WIFI_CONNECTING  100 on / 100 off
     {0b0011, 4},      // LED_PORTAL           200 on / 200 off
@@ -23,10 +23,23 @@ static const LedPattern LED_PATTERNS[] = {
     {0x00000001, 20}, // LED_ONLINE           100 on / 1900 off
 };
 
-// กันลืมเพิ่มแถวตอนเพิ่ม state ใหม่ — ถ้าลืม แถวที่ขาดจะเป็น {0,0} เงียบ ๆ
-// แล้ว modulo ด้วย slots=0 จะพัง static_assert จับตั้งแต่ตอน compile
+// กันลืมเพิ่มแถวตอนเพิ่ม state ใหม่ — ถ้าลืม array จะสั้นลงกว่า LED_STATE_COUNT
+// (ไม่ใช่ {0,0} เงียบ ๆ เพราะ LED_PATTERNS[] ไม่ระบุขนาด — ลืมแถว = OOB read)
+// static_assert ตัวนี้จับ mismatch จำนวนแถวตั้งแต่ตอน compile
 static_assert(sizeof(LED_PATTERNS) / sizeof(LED_PATTERNS[0]) == LED_STATE_COUNT,
               "LED_PATTERNS ต้องมีครบทุก state ใน enum LedState");
+
+// mask เป็น uint32_t — shift ด้วยค่า >= 32 คือ undefined behavior (และบน Xtensa
+// จะ wrap กลับมาแทนที่จะเป็น 0) ทุกแถวต้องมี slots อยู่ในช่วง 1..32 ไม่งั้น
+// ledTickCb() จะ shift เกินขอบเขตของ mask แบบเงียบ ๆ
+static constexpr bool ledPatternsValid()
+{
+  for (size_t i = 0; i < sizeof(LED_PATTERNS) / sizeof(LED_PATTERNS[0]); i++)
+    if (LED_PATTERNS[i].slots == 0 || LED_PATTERNS[i].slots > 32)
+      return false;
+  return true;
+}
+static_assert(ledPatternsValid(), "slots ต้องอยู่ในช่วง 1..32 — mask เป็น uint32_t");
 
 static Ticker ledTicker;
 static volatile uint8_t gState = LED_BOOT;
