@@ -91,9 +91,28 @@ void ledStopForRestart();         // detach ticker + pin HIGH — เรีย�
 
 โค้ด boot เป็น blocking ทั้งเส้น — `connectWifi()` วน `delay(500)` และ `wm.autoConnect()` block ได้ถึง 180 วินาที (config portal timeout) โดยไม่มี per-iteration hook ให้แทรก
 
-ถ้า tick จาก `loop()` LED จะค้างพอดีในจังหวะที่ต้องการมันที่สุด `Ticker` (มากับ ESP8266 core) ใช้ `os_timer` ซึ่งวิ่งต่อไปได้แม้ user code block อยู่ → ได้ pattern ครบทุก state โดย**ไม่ต้องรื้อ boot flow**
+ถ้า tick จาก `loop()` LED จะค้างพอดีในจังหวะที่ต้องการมันที่สุด `Ticker` (มากับ ESP8266 core) ใช้ `os_timer` → ได้ pattern ครบทุก state โดย**ไม่ต้องรื้อ boot flow**
 
-**ความปลอดภัยของ callback:** `os_timer` callback บน ESP8266 รันใน SYS task context (ไม่ใช่ hard ISR) — `digitalWrite()` และอ่าน const array ปลอดภัย callback จะทำแค่ 3 อย่าง: อ่าน state, คำนวณ bit, `digitalWrite` ห้ามแตะ `Serial` / `String` / heap allocation ในนั้น
+#### กลไกที่ทำให้มันทำงานได้ (สำคัญ — อย่าเข้าใจผิด)
+
+`os_timer` **ไม่ใช่ hardware interrupt** และ **preempt โค้ดที่กำลังรันไม่ได้**
+
+ESP8266 core รัน `loop()` อยู่บน cont stack ที่ SDK เป็นคนจัดคิว เมื่อโค้ดเรียก `delay()` หรือ `yield()` มันจะ `cont_yield()` คืน CPU กลับไปให้ SDK (นี่คือเหตุผลที่ WiFi stack ไม่พังตอนเรียก `delay()` — ต่างจาก AVR ที่ `delay()` เป็น busy-wait จริง) SDK จะเคลียร์งานของตัวเอง **รวมถึงยิง os_timer callback** แล้วค่อยคืนคิวให้ loop task ทำต่อจากบรรทัดเดิม
+
+```
+delay(500) ─► cont_yield() ─► SDK scheduler ─┬─ WiFi / TCP-IP
+                                             └─ ledTickCb() → digitalWrite
+                                   │
+              ครบ 500ms ◄──────────┘ คืนคิวให้ loop task
+```
+
+ดังนั้นข้อได้เปรียบจริงของ Ticker **ไม่ใช่** "วิ่งได้ตอน block" แต่คือ **ลงทะเบียนไว้กับ SDK แทนที่จะต้องพึ่ง call site** — ตอนอยู่ใน `wm.autoConnect()` โค้ดของเราไม่ถูกเรียกเลย แต่ WiFiManager เรียก `delay()`/`yield()` ข้างในตัวเอง (ไม่งั้น WiFi stack มันตาย) → ทุกครั้งที่มันเรียก SDK ก็ได้จังหวะยิง callback ของเรา โดย WiFiManager ไม่ต้องรู้จักเราเลย
+
+**ข้อจำกัดที่ยอมรับ:**
+- ถ้ามีโค้ดที่ busy-wait จริง (วนโดยไม่ `delay`/`yield`) LED จะค้าง — แต่โค้ดแบบนั้นจะโดน WDT reset ใน ~3 วิอยู่แล้ว จึงไม่มีในโค้ดที่ทำงานได้
+- tick 100 ms เป็น cooperative จึงมี jitter ถ้าโค้ดถือ CPU ยาวระหว่าง yield สองครั้ง — สำหรับไฟบอกสถานะ คลาดหลักสิบ ms มองไม่ออก **ไม่ใช่ timebase ที่แม่น** ถ้าต้องการความแม่นจริงต้องใช้ `timer1_attachInterrupt` (ISR จริง) ซึ่ง overkill และกิน timer1 ที่มีตัวเดียว
+
+**ความปลอดภัยของ callback:** ผลพลอยได้จากการที่มันไม่ใช่ hard ISR คือ callback รันใน SYS task context — `digitalWrite()` และอ่าน const array ปลอดภัย ไม่ต้องใส่ `IRAM_ATTR` แต่ยังต้องทำให้สั้น: อ่าน state, คำนวณ bit, `digitalWrite` เท่านั้น ห้ามแตะ `Serial` / `String` / heap allocation ในนั้น
 
 state เก็บเป็น `volatile uint8_t` ตัวเดียว → assign เป็น atomic ไม่ต้องใช้ lock ระหว่าง `ledSetState()` กับ callback
 
