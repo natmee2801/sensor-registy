@@ -42,7 +42,7 @@ macro ของ D1/D6/D5/D7 นิยามใน `src/main.cpp` ส่วน `S
                 │                  D5 ───┼─► VC-02 RX  │  (low-trigger)
                 │                  D7 ◄──┼─  VC-02 TX  │
                 │                        │             │
-                │ D4 -> status LED        │      VCC ◄──┘  (จาก Vin 5V)
+                │ D4 → status LED        │      VCC ◄──┘  (จาก Vin 5V)
                 │ D2      — ปล่อยว่าง     │      GND ◄──┐
                 │ D0/D3/D8 หลีกเลี่ยง     │             │
                 └────────────────────────┘             │
@@ -92,7 +92,9 @@ LED บนโมดูล ESP-12 กระพริบบอกว่า firmwar
 | แว้บสั้น 2 ครั้ง/800 ms | ต่อ broker ได้ ยังไม่ถูก claim | ไปกด Claim ที่แท็บ Pairing ใน UI |
 | แว้บสั้น 1 ครั้ง/2 วิ | ปกติ ทุกอย่างเรียบร้อย | — |
 
-**อย่าต่ออะไรเพิ่มที่ D4** — GPIO2 เป็น boot-strap pin ต้องเป็น HIGH ตอน reset ถ้าโดนดึง LOW ค้าง บอร์ดจะ boot เข้า UART download mode แล้วค้าง firmware จึงเรียก `ledStopForRestart()` ดึง pin กลับเป็น HIGH ก่อน `ESP.restart()` ทุกจุด
+**อย่าต่ออะไรเพิ่มที่ D4** — GPIO2 เป็น boot-strap pin ต้องเป็น HIGH ตอน reset ถ้าโดนดึง LOW ค้าง บอร์ดจะ boot เข้า UART download mode แล้วค้าง firmware เรียก `ledStopForRestart()` ดึง pin กลับเป็น HIGH ก่อน `ESP.restart()` ใน 4 จุดที่**ตัวเองเป็นคนสั่ง restart** (ดู `main.cpp`)
+
+Guard นี้ครอบไม่ถึงทุกเส้นทาง — WiFiManager v2.0.17 restart เครื่องเองได้จาก portal route `/r` `/erase` `/u` รวมถึง soft-WDT reset, exception/panic reset, brownout ก็ข้าม guard เช่นกัน (แก้ library ไม่ได้) ผลกระทบต่ำเพราะ soft reset เคลียร์ GPIO matrix ทำให้ GPIO2 กลับเป็น input และโมดูล ESP-12 มี pull-up ภายในที่ขานี้อยู่แล้ว → strap อ่าน HIGH โดยไม่ต้องพึ่ง guard
 
 เปลี่ยน pin หรือ polarity ได้ด้วย build flag `-DSTATUS_LED_PIN=D2` / `-DSTATUS_LED_ACTIVE_LOW=0` (ดูหัวข้อ Override macro ข้างล่าง)
 
@@ -113,6 +115,8 @@ build_flags =
   -DLIGHT_PIN_OUT2=D1
   -DACTIVE_LOW_OUT1=0
   -DACTIVE_LOW_OUT2=0
+  -DSTATUS_LED_PIN=D2
+  -DSTATUS_LED_ACTIVE_LOW=0
 ```
 
-ค่า default ใน `src/main.cpp` (D1 + D6, active-LOW ทั้งคู่) จะถูก override
+ค่า default ใน `src/main.cpp` (D1 + D6, active-LOW ทั้งคู่) จะถูก override — ค่า default ของ status LED (`STATUS_LED_PIN`/`STATUS_LED_ACTIVE_LOW`, นิยามใน `src/status_led.h`) ก็ override ด้วยวิธีเดียวกัน
