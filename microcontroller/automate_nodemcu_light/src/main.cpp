@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <SoftwareSerial.h>
+#include "status_led.h"
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -148,6 +149,7 @@ void wipeAndRestart(const char *reason)
   {
     LittleFS.remove(ID_FILE);
   }
+  ledStopForRestart();
   delay(500);
   ESP.restart();
 }
@@ -300,6 +302,7 @@ void onMqttMessage(char *topic, byte *payload, unsigned int len)
       return;
     saveDeviceId(String(assigned));
     Serial.println("[pair] got assigned id — rebooting to apply");
+    ledStopForRestart();
     delay(500);
     ESP.restart();
     return;
@@ -375,12 +378,14 @@ bool mqttReconnect()
     Serial.printf("[mqtt] subscribed %s + %s\n",
                   cmdTopic.c_str(), wipeTopic.c_str());
     publishHeartbeat();
+    ledSetState(LED_ONLINE);
   }
   else
   {
     pairAckTopic = String("pair/ack/") + macClean;
     mqtt.subscribe(pairAckTopic.c_str(), 1);
     Serial.printf("[mqtt] subscribed %s (pairing mode)\n", pairAckTopic.c_str());
+    ledSetState(LED_PAIRING);
   }
   return true;
 }
@@ -389,6 +394,7 @@ void connectWifi()
 {
 #ifdef WIFI_SSID
   Serial.printf("[wifi] connecting to %s (hardcoded)\n", WIFI_SSID);
+  ledSetState(LED_WIFI_CONNECTING);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   unsigned long wifiStart = millis();
@@ -401,6 +407,7 @@ void connectWifi()
   if (WiFi.status() != WL_CONNECTED)
   {
     Serial.printf("[wifi] connect failed (status=%d) — rebooting\n", WiFi.status());
+    ledStopForRestart();
     delay(2000);
     ESP.restart();
   }
@@ -411,11 +418,17 @@ void connectWifi()
   wm.setDebugOutput(true);
   wm.setConnectTimeout(20);
   wm.setConfigPortalTimeout(180);
+  // autoConnect() block ได้ถึง 180 วิ และไม่มี hook ให้แทรก tick ของเรา —
+  // เปลี่ยน state ผ่าน callback ตอนมันเปิด AP แล้วปล่อยให้ Ticker ทำงานเอง
+  wm.setAPCallback([](WiFiManager *)
+                   { ledSetState(LED_PORTAL); });
   String apName = String("light-setup-") + String((uint32_t)ESP.getChipId(), HEX);
   Serial.printf("[wifi] starting autoConnect, AP=%s\n", apName.c_str());
+  ledSetState(LED_WIFI_CONNECTING);
   if (!wm.autoConnect(apName.c_str()))
   {
     Serial.println("[wifi] auto-connect failed — rebooting");
+    ledStopForRestart();
     delay(2000);
     ESP.restart();
   }
@@ -425,6 +438,7 @@ void connectWifi()
 
 void setup()
 {
+  ledBegin(); // ตั้ง LED ก่อนอย่างอื่น — delay(5000) ข้างล่างจะได้เห็น state BOOT
   Serial.begin(115200);
   delay(5000);
 
@@ -457,6 +471,7 @@ void setup()
 
   buildTopics();
 
+  ledSetState(LED_MQTT_CONNECTING);
   Serial.printf("[mqtt] target=%s:%d\n", MQTT_HOST, MQTT_PORT);
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMqttMessage);
@@ -478,11 +493,13 @@ void setup()
 void loop()
 {
   if (WiFi.status() != WL_CONNECTED) {
+    ledSetState(LED_WIFI_CONNECTING);
     delay(500);
     return;
   }
 
   if (!mqtt.connected()) {
+    ledSetState(LED_MQTT_CONNECTING);
     if (!mqttReconnect()) {
       delay(2000);
       return;
