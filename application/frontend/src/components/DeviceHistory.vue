@@ -52,13 +52,20 @@ const DIRECTION_TOOLTIP: Record<LogDirection, string> = {
   internal: 'ภายในระบบ (ไม่ผ่าน MQTT)',
 }
 
-const isOnEvent = (type: LogType) =>
-  type === 'toggle' ||
-  type === 'auto_on' ||
-  type === 'auto_off' ||
-  type === 'timer_expired' ||
-  type === 'cmd_ack' ||
-  type === 'hb_sync'
+// ring colour for standalone (non-command) rows
+const ringTone = (type: LogType) => {
+  if (type === 'device_online' || type === 'paired') return 'good'
+  if (type === 'device_offline' || type === 'cmd_timeout') return 'bad'
+  return 'neutral'
+}
+
+const standaloneDetail = (log: DeviceLog) => {
+  const parts: string[] = []
+  const chip = outputLabel(log.output)
+  if (chip) parts.push(`ช่อง${chip}`)
+  if (log.isOn !== null) parts.push(onOff(log.isOn))
+  return parts.join(' ')
+}
 
 const outputLabel = (output: OutputId | null) =>
   output ? OUTPUT_BRIGHTNESS_CHIP[output] : null
@@ -85,11 +92,7 @@ const burstLevel = (rows: BurstRow[]): BrightnessLevel | null => {
   return null
 }
 
-const burstTone = (b: Burst): 'on' | 'off' | null => {
-  const level = burstLevel(b.rows)
-  if (level === null) return null
-  return level === 'off' ? 'off' : 'on'
-}
+const burstLampClass = (b: Burst) => `lamp--${burstLevel(b.rows) ?? 'unknown'}`
 
 const burstHeadline = (b: Burst) => {
   const level = burstLevel(b.rows)
@@ -196,79 +199,62 @@ watch(refreshKey, (next, prev) => {
 </script>
 
 <template>
-  <div class="history">
-    <h2 class="history__title">ประวัติการเปลี่ยนสถานะ</h2>
+  <section class="history" aria-labelledby="history-title">
+    <h2 id="history-title" class="history__title">ประวัติการเปลี่ยนสถานะ</h2>
 
-    <ul v-if="timeline.length > 0" class="timeline">
+    <ol v-if="timeline.length > 0" class="timeline">
       <template v-for="item in timeline" :key="item.key">
-        <li v-if="item.type === 'separator'" class="timeline__sep">
-          <span class="timeline__sep-line" aria-hidden="true" />
-          <span class="timeline__sep-label">{{ item.separatorLabel }}</span>
-          <span class="timeline__sep-line" aria-hidden="true" />
+        <li v-if="item.type === 'separator'" class="timeline__day">
+          {{ item.separatorLabel }}
         </li>
-        <li v-else-if="item.burst" class="timeline__item">
-          <span
-            class="timeline__node"
-            :class="burstStatus(item.burst).tone === 'ok' ? 'timeline__node--in' : 'timeline__node--out'"
-            aria-hidden="true"
-          />
-          <div class="timeline__content">
-            <div class="timeline__meta">
-              <span class="timeline__cause">{{ CAUSE_LABEL[item.burst.cause] }}</span>
-              <span class="timeline__time">{{ formatTime(item.burst.at) }}</span>
-            </div>
-            <div
-              class="timeline__event"
-              :class="{
-                'timeline__event--on': burstTone(item.burst) === 'on',
-                'timeline__event--off': burstTone(item.burst) === 'off',
-              }"
-            >
-              {{ burstHeadline(item.burst) }}
-            </div>
-            <p class="burst__status" :class="`burst__status--${burstStatus(item.burst).tone}`">
+
+        <li v-else-if="item.burst" class="entry">
+          <span class="lamp" :class="burstLampClass(item.burst)" aria-hidden="true">
+            <i class="lamp__pip" />
+            <i class="lamp__pip" />
+          </span>
+          <div class="entry__head">
+            <span class="entry__level">{{ burstHeadline(item.burst) }}</span>
+            <time class="entry__time" :datetime="item.burst.at">{{ formatTime(item.burst.at) }}</time>
+          </div>
+          <p class="entry__sub">
+            <span>{{ CAUSE_LABEL[item.burst.cause] }}</span>
+            <span class="ack" :class="`ack--${burstStatus(item.burst).tone}`">
+              <svg class="ack__icon" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  v-if="burstStatus(item.burst).tone === 'ok'"
+                  d="M2.5 6.4 5 8.8l4.6-5"
+                />
+                <path
+                  v-else-if="burstStatus(item.burst).tone === 'bad'"
+                  d="M6 2.6v4M6 9.2v.1"
+                />
+                <path v-else d="M6 2.8V6l2.2 1.4" />
+              </svg>
               {{ burstStatus(item.burst).text }}
-            </p>
-          </div>
+            </span>
+          </p>
         </li>
-        <li v-else-if="item.log" class="timeline__item">
-          <span
-            class="timeline__node"
-            :class="[`timeline__node--${item.log.direction}`]"
-            aria-hidden="true"
-          />
-          <div class="timeline__content">
-            <div class="timeline__meta">
-              <span
-                class="timeline__direction"
-                :class="[`timeline__direction--${item.log.direction}`]"
-                :title="DIRECTION_TOOLTIP[item.log.direction]"
-              >
-                {{ DIRECTION_GLYPH[item.log.direction] }}
-              </span>
-              <span v-if="outputLabel(item.log.output)" class="timeline__output">
-                {{ outputLabel(item.log.output) }}
-              </span>
-              <span class="timeline__time">{{ formatTime(item.log.createdAt) }}</span>
-            </div>
-            <div
-              class="timeline__event"
-              :class="{
-                'timeline__event--on': isOnEvent(item.log.type) && item.log.isOn === true,
-                'timeline__event--off': isOnEvent(item.log.type) && item.log.isOn === false,
-              }"
-            >
-              {{ LOG_LABEL[item.log.type] }}<span
-                v-if="item.log.isOn !== null"
-                class="timeline__event-suffix"
-              > · {{ item.log.isOn ? 'เปิด' : 'ปิด' }}</span>
-            </div>
+
+        <li v-else-if="item.log" class="entry entry--event">
+          <span class="ring" :class="`ring--${ringTone(item.log.type)}`" aria-hidden="true" />
+          <div class="entry__head">
+            <span class="entry__title">{{ LOG_LABEL[item.log.type] }}</span>
+            <time class="entry__time" :datetime="item.log.createdAt">
+              {{ formatTime(item.log.createdAt) }}
+            </time>
           </div>
+          <p class="entry__sub">
+            <span :title="DIRECTION_TOOLTIP[item.log.direction]">
+              {{ DIRECTION_GLYPH[item.log.direction] }}
+            </span>
+            <span v-if="standaloneDetail(item.log)">{{ standaloneDetail(item.log) }}</span>
+          </p>
         </li>
       </template>
-    </ul>
+    </ol>
     <p v-else-if="!logsLoading" class="history__empty">
-      ยังไม่มีประวัติ — ลองสลับสถานะเพื่อดูรายการที่นี่
+      ยังไม่มีประวัติ ลองสลับสถานะเพื่อดูรายการที่นี่
     </p>
     <p v-else class="history__empty">กำลังโหลด…</p>
 
@@ -280,7 +266,7 @@ watch(refreshKey, (next, prev) => {
     >
       {{ logsLoading ? 'กำลังโหลด…' : 'โหลดเพิ่ม' }}
     </button>
-  </div>
+  </section>
 </template>
 
 <style scoped>
@@ -295,198 +281,167 @@ watch(refreshKey, (next, prev) => {
 }
 
 .history__title {
-  margin: 0 0 0.75rem;
-  font-size: 0.74rem;
+  margin: 0 0 0.7rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-2);
 }
 
+/* rail: the lamp glyph / ring of each entry sits on this line */
 .timeline {
+  --rail-x: 0.5rem;
+  --gutter: 1.9rem;
   position: relative;
   list-style: none;
-  margin: 0 -0.25rem;
-  padding: 0.15rem 0.25rem 0.15rem 1.35rem;
-  border-left: 2px solid var(--stroke);
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  max-height: clamp(12rem, 34vh, 22rem);
+  margin: 0;
+  padding: 0 0.35rem 0 0;
+  max-height: clamp(12rem, 36vh, 24rem);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(245, 158, 11, 0.32) transparent;
 }
 
-.timeline::-webkit-scrollbar {
-  width: 6px;
-  background: transparent;
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: var(--rail-x);
+  top: 0.4rem;
+  bottom: 0.4rem;
+  width: 1px;
+  background: var(--stroke-strong);
 }
 
+.timeline::-webkit-scrollbar { width: 6px; background: transparent; }
 .timeline::-webkit-scrollbar-thumb {
   background: rgba(245, 158, 11, 0.32);
   border-radius: 999px;
 }
 
-.timeline::-webkit-scrollbar-thumb:hover {
-  background: rgba(245, 158, 11, 0.5);
-}
-
-.timeline__item {
+.timeline__day {
   position: relative;
-  padding: 0.32rem 0;
-}
-
-.timeline__node {
-  position: absolute;
-  left: -1.78rem;
-  top: 0.62rem;
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 999px;
-  background: #4a4538;
-  box-shadow: 0 0 0 3px rgba(20, 22, 31, 0.95);
-}
-
-.timeline__node--out {
-  background: var(--accent-strong);
-  box-shadow:
-    0 0 0 3px rgba(20, 22, 31, 0.95),
-    0 0 0 4px rgba(245, 158, 11, 0.28),
-    0 0 10px rgba(245, 158, 11, 0.5);
-}
-
-.timeline__node--in {
-  background: var(--on);
-  box-shadow:
-    0 0 0 3px rgba(20, 22, 31, 0.95),
-    0 0 0 4px rgba(163, 230, 53, 0.28),
-    0 0 10px rgba(163, 230, 53, 0.45);
-}
-
-.timeline__node--internal {
-  background: #4a4538;
-}
-
-.timeline__content {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.timeline__meta {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.7rem;
-  flex-wrap: wrap;
-}
-
-.timeline__direction {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.06rem 0.42rem;
-  border-radius: 999px;
-  background: var(--surface-sunk);
-  border: 1px solid var(--stroke);
-  font-size: 0.66rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text-2);
-  cursor: help;
-}
-
-.timeline__direction--out {
-  color: var(--warm-strong);
-  background: var(--accent-soft);
-  border-color: rgba(245, 158, 11, 0.32);
-}
-
-.timeline__direction--in {
-  color: var(--on-text);
-  background: var(--on-soft);
-  border-color: rgba(163, 230, 53, 0.32);
-}
-
-.timeline__output {
-  display: inline-flex;
-  padding: 0.06rem 0.42rem;
-  border-radius: 999px;
-  background: var(--warm-soft);
-  border: 1px solid rgba(252, 211, 77, 0.28);
-  color: var(--warm);
-  font-size: 0.66rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.timeline__cause {
-  display: inline-flex;
-  padding: 0.06rem 0.42rem;
-  border-radius: 999px;
-  background: var(--surface-sunk);
-  border: 1px solid var(--stroke);
-  color: var(--text-2);
-  font-size: 0.66rem;
-  font-weight: 600;
-}
-
-.burst__status {
-  margin: 0.25rem 0 0;
-  font-size: 0.7rem;
+  margin: 0.65rem 0 0.25rem;
+  padding-left: var(--gutter);
+  font-size: 0.74rem;
+  font-weight: 700;
   color: var(--muted);
 }
+.timeline__day:first-child { margin-top: 0; }
 
-.burst__status--ok { color: var(--on-text); }
-.burst__status--bad { color: var(--offline-text); }
+.entry {
+  position: relative;
+  padding: 0.42rem 0 0.42rem var(--gutter);
+}
 
-.timeline__time {
-  margin-left: auto;
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 0.68rem;
+.entry__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* the level is the one thing meant to be read first */
+.entry__level {
+  font-size: 1.12rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.entry__title {
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+
+.entry__time {
+  flex: none;
+  font-size: 0.72rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
-.timeline__event {
-  font-size: 0.84rem;
-  font-weight: 600;
-  color: var(--text);
-  line-height: 1.35;
-}
-
-.timeline__event--on { color: var(--on-text); }
-.timeline__event--off { color: var(--offline-text); }
-
-.timeline__event-suffix {
-  font-weight: 500;
-  opacity: 0.9;
-}
-
-.timeline__sep {
+.entry__sub {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
-  margin: 0.5rem 0 0.15rem;
-  margin-left: -1.35rem;
-  padding-left: 0.4rem;
-}
-
-.timeline__sep:first-child { margin-top: 0; }
-
-.timeline__sep-line {
-  flex: 1;
-  height: 1px;
-  background: var(--stroke);
-}
-
-.timeline__sep-label {
-  font-size: 0.64rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  gap: 0.15rem 0.75rem;
+  margin: 0.12rem 0 0;
+  font-size: 0.74rem;
   color: var(--muted);
 }
+
+/* ---- lamp glyph: two pips = the two relays (top สว่าง, bottom หรี่) ---- */
+.lamp {
+  position: absolute;
+  left: calc(var(--rail-x) - 0.45rem);
+  top: 0.62rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  width: 0.9rem;
+  padding: 0.22rem 0.2rem;
+  border-radius: 0.45rem;
+  background: var(--bg-2);
+  box-shadow: 0 0 0 1px var(--stroke-strong);
+}
+
+.lamp__pip {
+  display: block;
+  height: 0.3rem;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--stroke-strong);
+}
+
+.lamp--high .lamp__pip {
+  background: var(--warm);
+  box-shadow: 0 0 8px rgba(252, 211, 77, 0.55);
+}
+.lamp--low .lamp__pip:last-child {
+  background: var(--accent);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+}
+.lamp--high { box-shadow: 0 0 0 1px rgba(252, 211, 77, 0.35), 0 0 14px rgba(252, 211, 77, 0.18); }
+.lamp--unknown .lamp__pip { box-shadow: inset 0 0 0 1px var(--muted); opacity: 0.6; }
+
+.entry:has(.lamp--high) .entry__level { color: var(--warm-strong); }
+.entry:has(.lamp--low) .entry__level { color: var(--accent-strong); }
+.entry:has(.lamp--off) .entry__level { color: var(--text-2); }
+
+/* ---- ring: system events that are not a command ---- */
+.ring {
+  position: absolute;
+  left: calc(var(--rail-x) - 0.2rem);
+  top: 0.78rem;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--bg-2);
+  box-shadow: 0 0 0 1.5px var(--muted);
+}
+.ring--good { box-shadow: 0 0 0 1.5px var(--on); }
+.ring--bad { box-shadow: 0 0 0 1.5px var(--offline); }
+
+/* ---- ack status ---- */
+.ack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  font-weight: 600;
+}
+.ack__icon {
+  width: 0.78rem;
+  height: 0.78rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ack--ok { color: var(--on-text); }
+.ack--bad { color: var(--offline-text); }
+.ack--wait { color: var(--muted); }
 
 .history__empty {
   margin: 0;
@@ -515,6 +470,11 @@ watch(refreshKey, (next, prev) => {
   background: var(--accent-soft);
   border-color: rgba(245, 158, 11, 0.32);
   color: var(--warm-strong);
+}
+
+.history__more:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
 }
 
 .history__more:disabled {
