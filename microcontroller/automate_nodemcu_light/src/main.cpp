@@ -45,6 +45,8 @@ static const uint8_t OUTPUT_ACTIVE_LOW[OUTPUT_COUNT] = {ACTIVE_LOW_OUT1, ACTIVE_
 
 static const unsigned long HELLO_INTERVAL_MS = 5000;
 static const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
+// WiFi หลุดระหว่างทำงาน — รอ auto-reconnect ได้เท่านี้ ถ้าเกินให้ reboot
+static const unsigned long WIFI_LOST_REBOOT_MS = 120000;
 
 // VC-02-Kit voice module (UART, bidirectional)
 // ESP RX  D7 (GPIO13) ◄── VC-02 TX  — รับ command bytes
@@ -83,6 +85,7 @@ String pairAckTopic; // pair/ack/{mac}
 bool lightOn[OUTPUT_COUNT] = {false, false};
 unsigned long lastHelloMs = 0;
 unsigned long lastHbMs = 0;
+unsigned long wifiLostSinceMs = 0; // 0 = WiFi ปกติ
 
 int outputIndexFromName(const char *name)
 {
@@ -494,9 +497,19 @@ void loop()
 {
   if (WiFi.status() != WL_CONNECTED) {
     ledSetState(LED_WIFI_CONNECTING);
+    if (wifiLostSinceMs == 0) {
+      wifiLostSinceMs = millis();
+      Serial.println("[wifi] connection lost — waiting for reconnect");
+    } else if (millis() - wifiLostSinceMs >= WIFI_LOST_REBOOT_MS) {
+      Serial.println("[wifi] reconnect timeout — rebooting");
+      ledStopForRestart();
+      delay(2000);
+      ESP.restart();
+    }
     delay(500);
     return;
   }
+  wifiLostSinceMs = 0;
 
   if (!mqtt.connected()) {
     ledSetState(LED_MQTT_CONNECTING);
