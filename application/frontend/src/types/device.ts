@@ -15,12 +15,6 @@ export const BRIGHTNESS_LABELS: Record<BrightnessLevel, string> = {
   low: 'หรี่',
   high: 'สว่าง',
 }
-// Map per-output history events → brightness chip text (out1 toggle = reaches LOW; out2 = HIGH)
-export const OUTPUT_BRIGHTNESS_CHIP: Record<OutputId, string> = {
-  out1: 'หรี่',
-  out2: 'สว่าง',
-}
-
 export interface OutputState {
   isOn: boolean
   lastUpdatedAt: string | null

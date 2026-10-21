@@ -2,8 +2,9 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
+import { groupHistory, type Burst, type BurstCause, type BurstRow } from '@/lib/historyBursts'
 import {
-  OUTPUT_BRIGHTNESS_CHIP,
+  OUTPUT_LABELS,
   type DeviceLog,
   type LogDirection,
   type LogType,
@@ -56,8 +57,35 @@ const isOnEvent = (type: LogType) =>
   type === 'cmd_ack' ||
   type === 'hb_sync'
 
-const outputLabel = (output: OutputId | null) =>
-  output ? OUTPUT_BRIGHTNESS_CHIP[output] : null
+const outputLabel = (output: OutputId | null) => (output ? OUTPUT_LABELS[output] : null)
+
+const CAUSE_LABEL: Record<BurstCause, string> = {
+  command: 'สั่งงาน',
+  auto: 'อัตโนมัติ',
+  timer: 'ตัวจับเวลา',
+}
+
+const onOff = (isOn: boolean | null) => (isOn === null ? '' : isOn ? 'เปิด' : 'ปิด')
+
+const burstTone = (rows: BurstRow[]): 'on' | 'off' | 'mixed' => {
+  if (rows.every((r) => r.isOn === true)) return 'on'
+  if (rows.every((r) => r.isOn === false)) return 'off'
+  return 'mixed'
+}
+
+const burstHeadline = (b: Burst) => {
+  const tone = burstTone(b.rows)
+  if (b.rows.length > 1 && tone !== 'mixed') return `${onOff(tone === 'on')}ทั้งสองหลอด`
+  return b.rows.map((r) => `${OUTPUT_LABELS[r.output]} ${onOff(r.isOn)}`).join(' · ')
+}
+
+const burstStatus = (b: Burst): { text: string; tone: 'ok' | 'bad' | 'wait' } => {
+  if (b.rows.some((r) => r.timedOut && !r.acked)) {
+    return { text: 'ไม่ได้รับการตอบรับ', tone: 'bad' }
+  }
+  if (b.rows.every((r) => r.acked)) return { text: 'อุปกรณ์ตอบรับแล้ว', tone: 'ok' }
+  return { text: 'รอการตอบรับ', tone: 'wait' }
+}
 
 const formatThaiDate = (isoDate: string) =>
   new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium' }).format(new Date(isoDate))
@@ -86,22 +114,28 @@ const dayLabel = (iso: string) => {
 }
 
 interface TimelineItem {
-  type: 'separator' | 'log'
+  type: 'separator' | 'log' | 'burst'
   key: string
   log?: DeviceLog
+  burst?: Burst
   separatorLabel?: string
 }
 
 const timeline = computed<TimelineItem[]>(() => {
   const items: TimelineItem[] = []
   let lastDay = ''
-  for (const log of logs.value) {
-    const k = dayKey(log.createdAt)
+  for (const entry of groupHistory(logs.value)) {
+    const at = entry.kind === 'burst' ? entry.burst.at : entry.log.createdAt
+    const k = dayKey(at)
     if (k !== lastDay) {
-      items.push({ type: 'separator', key: `sep-${k}`, separatorLabel: dayLabel(log.createdAt) })
+      items.push({ type: 'separator', key: `sep-${k}`, separatorLabel: dayLabel(at) })
       lastDay = k
     }
-    items.push({ type: 'log', key: log._id, log })
+    if (entry.kind === 'burst') {
+      items.push({ type: 'burst', key: entry.burst.key, burst: entry.burst })
+    } else {
+      items.push({ type: 'log', key: entry.log._id, log: entry.log })
+    }
   }
   return items
 })
@@ -153,6 +187,41 @@ watch(refreshKey, (next, prev) => {
           <span class="timeline__sep-line" aria-hidden="true" />
           <span class="timeline__sep-label">{{ item.separatorLabel }}</span>
           <span class="timeline__sep-line" aria-hidden="true" />
+        </li>
+        <li v-else-if="item.burst" class="timeline__item">
+          <span
+            class="timeline__node"
+            :class="burstStatus(item.burst).tone === 'ok' ? 'timeline__node--in' : 'timeline__node--out'"
+            aria-hidden="true"
+          />
+          <div class="timeline__content">
+            <div class="timeline__meta">
+              <span class="timeline__cause">{{ CAUSE_LABEL[item.burst.cause] }}</span>
+              <span class="timeline__time">{{ formatTime(item.burst.at) }}</span>
+            </div>
+            <div
+              class="timeline__event"
+              :class="{
+                'timeline__event--on': burstTone(item.burst.rows) === 'on',
+                'timeline__event--off': burstTone(item.burst.rows) === 'off',
+              }"
+            >
+              {{ burstHeadline(item.burst) }}
+            </div>
+            <ul class="burst__pills">
+              <li
+                v-for="row in item.burst.rows"
+                :key="row.output"
+                class="burst__pill"
+                :class="row.isOn ? 'burst__pill--on' : 'burst__pill--off'"
+              >
+                {{ OUTPUT_LABELS[row.output] }} · {{ onOff(row.isOn) }}
+              </li>
+            </ul>
+            <p class="burst__status" :class="`burst__status--${burstStatus(item.burst).tone}`">
+              {{ burstStatus(item.burst).text }}
+            </p>
+          </div>
         </li>
         <li v-else-if="item.log" class="timeline__item">
           <span
@@ -342,6 +411,56 @@ watch(refreshKey, (next, prev) => {
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+
+.timeline__cause {
+  display: inline-flex;
+  padding: 0.06rem 0.42rem;
+  border-radius: 999px;
+  background: var(--surface-sunk);
+  border: 1px solid var(--stroke);
+  color: var(--text-2);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.burst__pills {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.burst__pill {
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: var(--surface-sunk);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.burst__pill--on {
+  color: var(--on-text);
+  background: var(--on-soft);
+  border-color: rgba(163, 230, 53, 0.32);
+}
+
+.burst__pill--off {
+  color: var(--offline-text);
+  border-color: var(--stroke-strong);
+}
+
+.burst__status {
+  margin: 0.25rem 0 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.burst__status--ok { color: var(--on-text); }
+.burst__status--bad { color: var(--offline-text); }
 
 .timeline__time {
   margin-left: auto;
