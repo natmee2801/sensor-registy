@@ -4,7 +4,7 @@ import { OUTPUT_IDS, type DeviceLog, type LogType, type OutputId } from '@/types
 // (a command per relay, then an ack per relay) — group them into one entry.
 export const BURST_GAP_MS = 3000
 
-export type BurstCause = 'command' | 'auto' | 'timer'
+export type BurstCause = 'command' | 'auto' | 'timer' | 'device'
 
 export interface BurstRow {
   output: OutputId
@@ -25,16 +25,17 @@ const COMMAND_CAUSE: Partial<Record<LogType, BurstCause>> = {
   auto_on: 'auto',
   auto_off: 'auto',
   timer_expired: 'timer',
+  // the board changed on its own (voice module) and told us via heartbeat
+  hb_sync: 'device',
 }
 
-// hb_sync is drift found by a heartbeat, not the result of a command — it stays a standalone row
 const isBurstEvent = (log: DeviceLog) =>
   log.output !== null &&
   (log.type in COMMAND_CAUSE || log.type === 'cmd_ack' || log.type === 'cmd_timeout')
 
 const buildBurst = (newest: DeviceLog, logs: DeviceLog[]): Burst => {
   const rows = new Map<OutputId, BurstRow>()
-  let cause: BurstCause = 'command'
+  let cause: BurstCause | null = null
   // logs are newest-first, so the first command seen per output is its latest
   for (const log of logs) {
     const output = log.output as OutputId
@@ -46,7 +47,9 @@ const buildBurst = (newest: DeviceLog, logs: DeviceLog[]): Burst => {
     const commandCause = COMMAND_CAUSE[log.type]
     if (commandCause) {
       if (row.isOn === null) row.isOn = log.isOn
-      cause = commandCause
+      // the device reporting itself is the weakest explanation: any command in the burst wins
+      if (commandCause === 'device') row.acked = true
+      if (cause === null || cause === 'device') cause = commandCause
     } else if (log.type === 'cmd_ack') {
       row.acked = true
       if (row.isOn === null) row.isOn = log.isOn
@@ -57,7 +60,7 @@ const buildBurst = (newest: DeviceLog, logs: DeviceLog[]): Burst => {
   return {
     key: `burst-${newest._id}`,
     at: newest.createdAt,
-    cause,
+    cause: cause ?? 'command',
     rows: OUTPUT_IDS.flatMap((o) => rows.get(o) ?? []),
   }
 }

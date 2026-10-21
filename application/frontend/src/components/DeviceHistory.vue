@@ -64,8 +64,6 @@ const standaloneDetail = (log: DeviceLog) => {
   if (!log.output) return ''
   const name = RELAY_NAME[log.output]
   if (log.isOn === null) return name
-  // hb_sync reports what the device really is, so say it as a state, not an action
-  if (log.type === 'hb_sync') return `${name} ${log.isOn ? 'เปิดอยู่' : 'ปิดอยู่'}`
   return `${name} ${onOff(log.isOn)}`
 }
 
@@ -73,6 +71,7 @@ const CAUSE_LABEL: Record<BurstCause, string> = {
   command: 'สั่งงาน',
   auto: 'อัตโนมัติ',
   timer: 'ตัวจับเวลา',
+  device: 'สั่งที่อุปกรณ์ เช่น ด้วยเสียง',
 }
 
 const onOff = (isOn: boolean | null) => (isOn === null ? '' : isOn ? 'เปิด' : 'ปิด')
@@ -102,6 +101,7 @@ const burstHeadline = (b: Burst) => {
 }
 
 const burstStatus = (b: Burst): { text: string; tone: 'ok' | 'bad' | 'wait' } => {
+  if (b.cause === 'device') return { text: 'อุปกรณ์รายงานเอง', tone: 'ok' }
   if (b.rows.some((r) => r.timedOut && !r.acked)) {
     return { text: 'ไม่ได้รับการตอบรับ', tone: 'bad' }
   }
