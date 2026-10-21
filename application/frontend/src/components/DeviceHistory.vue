@@ -5,8 +5,6 @@ import { useDevicesStore } from '@/stores/devices'
 import { groupHistory, type Burst, type BurstCause, type BurstRow } from '@/lib/historyBursts'
 import {
   BRIGHTNESS_LABELS,
-  OUTPUT_BRIGHTNESS_CHIP,
-  OUTPUT_LABELS,
   type BrightnessLevel,
   type DeviceLog,
   type LogDirection,
@@ -37,14 +35,14 @@ const LOG_LABEL: Record<LogType, string> = {
   cmd_timeout: 'ไม่ได้รับการตอบรับ',
   device_online: 'ออนไลน์',
   device_offline: 'ออฟไลน์',
-  hb_sync: 'sync จาก heartbeat',
+  hb_sync: 'ปรับตามสถานะจริงของอุปกรณ์',
   paired: 'จับคู่สำเร็จ',
 }
 
 const DIRECTION_GLYPH: Record<LogDirection, string> = {
-  out: '→ ESP',
-  in: '← ESP',
-  internal: '• ระบบ',
+  out: 'ส่งไปอุปกรณ์',
+  in: 'จากอุปกรณ์',
+  internal: 'ระบบ',
 }
 const DIRECTION_TOOLTIP: Record<LogDirection, string> = {
   out: 'ส่งคำสั่งไปยังอุปกรณ์',
@@ -59,16 +57,17 @@ const ringTone = (type: LogType) => {
   return 'neutral'
 }
 
-const standaloneDetail = (log: DeviceLog) => {
-  const parts: string[] = []
-  const chip = outputLabel(log.output)
-  if (chip) parts.push(`ช่อง${chip}`)
-  if (log.isOn !== null) parts.push(onOff(log.isOn))
-  return parts.join(' ')
-}
+// one name per relay, used everywhere in the history (out1 = หรี่, out2 = สว่าง)
+const RELAY_NAME: Record<OutputId, string> = { out1: 'หลอดหรี่', out2: 'หลอดสว่าง' }
 
-const outputLabel = (output: OutputId | null) =>
-  output ? OUTPUT_BRIGHTNESS_CHIP[output] : null
+const standaloneDetail = (log: DeviceLog) => {
+  if (!log.output) return ''
+  const name = RELAY_NAME[log.output]
+  if (log.isOn === null) return name
+  // hb_sync reports what the device really is, so say it as a state, not an action
+  if (log.type === 'hb_sync') return `${name} ${log.isOn ? 'เปิดอยู่' : 'ปิดอยู่'}`
+  return `${name} ${onOff(log.isOn)}`
+}
 
 const CAUSE_LABEL: Record<BurstCause, string> = {
   command: 'สั่งงาน',
@@ -87,6 +86,8 @@ const burstLevel = (rows: BurstRow[]): BrightnessLevel | null => {
   if (out1 === true && out2 === true) return 'high'
   if (out1 === false && out2 === false) return 'off'
   if (out1 === true && out2 === false) return 'low'
+  // canonical levels never have out2 on without out1, so a lone out1 off means everything is off
+  if (out2 === undefined && out1 === false) return 'off'
   if (out1 === undefined && out2 !== undefined && out2 !== null) return out2 ? 'high' : 'low'
   if (out2 === undefined && out1 === true) return 'low'
   return null
@@ -97,7 +98,7 @@ const burstLampClass = (b: Burst) => `lamp--${burstLevel(b.rows) ?? 'unknown'}`
 const burstHeadline = (b: Burst) => {
   const level = burstLevel(b.rows)
   if (level) return BRIGHTNESS_LABELS[level]
-  return b.rows.map((r) => `${OUTPUT_LABELS[r.output]} ${onOff(r.isOn)}`).join(' · ')
+  return b.rows.map((r) => `${RELAY_NAME[r.output]} ${onOff(r.isOn)}`).join(' · ')
 }
 
 const burstStatus = (b: Burst): { text: string; tone: 'ok' | 'bad' | 'wait' } => {
