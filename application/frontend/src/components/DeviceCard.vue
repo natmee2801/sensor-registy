@@ -83,7 +83,12 @@ const handleQuick = (level: BrightnessLevel, event: Event) => {
       <span v-else class="card__time card__time--muted">ยังไม่มีกิจกรรม</span>
     </div>
 
-    <div class="card__segmented" :data-active="isOnline ? brightness : 'off'">
+    <div
+      class="card__segmented"
+      :data-active="isOnline ? brightness : 'off'"
+      :style="{ '--i': BRIGHTNESS_LEVELS.indexOf(isOnline ? brightness : 'off') }"
+    >
+      <span class="card__thumb" aria-hidden="true" />
       <button
         v-for="level in BRIGHTNESS_LEVELS"
         :key="level"
@@ -139,13 +144,14 @@ const handleQuick = (level: BrightnessLevel, event: Event) => {
   border-radius: 50%;
   background: radial-gradient(circle, rgba(252, 211, 77, 0.12), transparent 70%);
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transform: scale(0.7);
   pointer-events: none;
 }
 
 .card--low .card__halo,
 .card--high .card__halo {
   opacity: 1;
+  transform: scale(1);
 }
 
 .card--high .card__halo {
@@ -253,6 +259,8 @@ const handleQuick = (level: BrightnessLevel, event: Event) => {
 }
 
 .card__btn {
+  position: relative;
+  z-index: 1;
   padding: 0.38rem 0.4rem;
   border: 0;
   border-radius: calc(var(--radius-md) - 0.22rem);
@@ -270,26 +278,59 @@ const handleQuick = (level: BrightnessLevel, event: Event) => {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.card__btn--active {
-  color: var(--text);
+/* the lit background lives on .card__thumb, which slides between levels */
+.card__btn--active { color: var(--text); }
+.card__btn--low.card__btn--active { color: var(--warm); }
+.card__btn--high.card__btn--active { color: var(--warm-strong); }
+
+.card__thumb {
+  position: absolute;
+  top: 0.22rem;
+  bottom: 0.22rem;
+  left: 0.22rem;
+  width: calc((100% - 0.44rem - 0.5rem) / 3);
+  border-radius: calc(var(--radius-md) - 0.22rem);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    var(--shadow-sm);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--shadow-sm);
+  transform: translateX(calc(var(--i) * (100% + 0.25rem)));
+  pointer-events: none;
 }
 
-.card__btn--low.card__btn--active {
-  color: var(--warm);
+.card__segmented[data-active='low'] .card__thumb {
   background: linear-gradient(180deg, rgba(252, 211, 77, 0.22), rgba(252, 211, 77, 0.06));
 }
 
-.card__btn--high.card__btn--active {
-  color: var(--warm-strong);
+.card__segmented[data-active='high'] .card__thumb {
   background: linear-gradient(180deg, rgba(245, 158, 11, 0.28), rgba(245, 158, 11, 0.08));
 }
 
 .card__btn:disabled {
   cursor: not-allowed;
   opacity: 0.4;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .card__halo {
+    transition:
+      opacity var(--dur-slow) var(--ease-out),
+      transform var(--dur-slow) var(--ease-spring),
+      background var(--dur-base) ease;
+  }
+  .card__bulb,
+  .card__badge,
+  .card__badge-dot {
+    transition:
+      background var(--dur-base) ease,
+      border-color var(--dur-base) ease,
+      box-shadow var(--dur-base) ease,
+      color var(--dur-base) ease;
+  }
+  .card__thumb {
+    transition:
+      transform var(--dur-base) var(--ease-spring),
+      background var(--dur-base) ease;
+  }
+  .card__btn { transition: color 0.18s ease, background 0.18s ease, transform 0.12s ease; }
+  .card__btn:active:not(:disabled) { transform: scale(0.95); }
 }
 </style>

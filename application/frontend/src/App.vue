@@ -45,7 +45,11 @@ onUnmounted(() => {
 
     <div class="page__shell">
       <AppNav />
-      <RouterView />
+      <RouterView v-slot="{ Component }">
+        <Transition name="route" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </RouterView>
     </div>
   </main>
 </template>
@@ -55,6 +59,21 @@ onUnmounted(() => {
 .fade-leave-active { transition: opacity 700ms cubic-bezier(.16,.84,.26,1), transform 700ms cubic-bezier(.16,.84,.26,1); }
 .fade-enter-from, .fade-leave-to { opacity: 0 }
 .fade-leave-to { transform: scale(0.98) translateY(-6px) }
+
+@media (prefers-reduced-motion: no-preference) {
+  .route-enter-active {
+    transition:
+      opacity var(--dur-slow) var(--ease-out),
+      transform var(--dur-slow) var(--ease-out);
+  }
+  .route-leave-active {
+    transition:
+      opacity var(--dur-quick) ease-in,
+      transform var(--dur-quick) ease-in;
+  }
+  .route-enter-from { opacity: 0; transform: translateY(12px); }
+  .route-leave-to { opacity: 0; transform: translateY(-4px); }
+}
 
 .page {
   position: relative;

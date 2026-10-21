@@ -65,7 +65,8 @@ const closeClaim = () => {
       </div>
     </header>
 
-    <div class="tabs" role="tablist">
+    <div class="tabs" role="tablist" :style="{ '--i': tab === 'devices' ? 0 : 1 }">
+      <span class="tabs__thumb" aria-hidden="true" />
       <button
         type="button"
         class="tabs__item"
@@ -93,7 +94,8 @@ const closeClaim = () => {
       </button>
     </div>
 
-    <template v-if="tab === 'devices'">
+    <Transition name="panel" mode="out-in">
+    <div v-if="tab === 'devices'" key="devices" class="panel">
       <div class="search">
         <svg class="search__icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.7" />
@@ -123,12 +125,17 @@ const closeClaim = () => {
         <p class="empty__body">ลองค้นด้วย device_id หรือชื่อห้องอื่น</p>
       </div>
 
-      <div v-else class="grid">
-        <DeviceCard v-for="device in filtered" :key="device.id" :device="device" />
-      </div>
-    </template>
+      <TransitionGroup v-else tag="div" name="tile" class="grid" appear>
+        <DeviceCard
+          v-for="(device, i) in filtered"
+          :key="device.id"
+          :device="device"
+          :style="{ '--i': Math.min(i, 8) }"
+        />
+      </TransitionGroup>
+    </div>
 
-    <template v-else>
+    <div v-else key="pairing" class="panel">
       <div v-if="pairingCount === 0" class="empty">
         <span class="empty__icon" aria-hidden="true">⌁</span>
         <p class="empty__title">ยังไม่มีอุปกรณ์รอ pair</p>
@@ -136,15 +143,17 @@ const closeClaim = () => {
           เสียบไฟอุปกรณ์ตัวใหม่ — ภายในไม่กี่วินาทีจะปรากฏที่นี่
         </p>
       </div>
-      <div v-else class="grid">
+      <TransitionGroup v-else tag="div" name="tile" class="grid" appear>
         <PairingCard
-          v-for="session in visibleUnclaimed"
+          v-for="(session, i) in visibleUnclaimed"
           :key="session.mac"
           :session="session"
+          :style="{ '--i': Math.min(i, 8) }"
           @claim="openClaim"
         />
-      </div>
-    </template>
+      </TransitionGroup>
+    </div>
+    </Transition>
 
     <ClaimDeviceModal :session="selectedSession" @close="closeClaim" />
   </section>
@@ -258,7 +267,10 @@ const closeClaim = () => {
 }
 
 .tabs {
-  display: inline-flex;
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 0.2rem;
   padding: 0.22rem;
   border-radius: 999px;
@@ -271,8 +283,11 @@ const closeClaim = () => {
 }
 
 .tabs__item {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
   padding: 0.38rem 0.85rem;
   border: 0;
@@ -288,10 +303,20 @@ const closeClaim = () => {
 
 .tabs__item:hover { color: var(--text); }
 
-.tabs__item--active {
-  color: var(--warm-strong);
+.tabs__item--active { color: var(--warm-strong); }
+
+/* the highlight is one element that slides between tabs */
+.tabs__thumb {
+  position: absolute;
+  top: 0.22rem;
+  bottom: 0.22rem;
+  left: 0.22rem;
+  width: calc((100% - 0.44rem - 0.2rem) / 2);
+  border-radius: 999px;
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.28);
+  transform: translateX(calc(var(--i) * (100% + 0.2rem)));
+  pointer-events: none;
 }
 
 .tabs__count {
@@ -404,5 +429,41 @@ const closeClaim = () => {
   display: grid;
   gap: 0.85rem;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tabs__thumb { transition: transform var(--dur-base) var(--ease-spring); }
+
+  .panel-enter-active {
+    transition:
+      opacity var(--dur-base) var(--ease-out),
+      transform var(--dur-base) var(--ease-out);
+  }
+  .panel-leave-active {
+    transition: opacity var(--dur-quick) ease-in;
+  }
+  .panel-enter-from { opacity: 0; transform: translateY(8px); }
+  .panel-leave-to { opacity: 0; }
+
+  /* cards rise in one after another; the delay is capped so long lists do not drag */
+  .grid .tile-enter-active {
+    transition:
+      opacity var(--dur-slow) var(--ease-out) calc(var(--i, 0) * 45ms),
+      transform var(--dur-slow) var(--ease-spring) calc(var(--i, 0) * 45ms);
+  }
+  .grid .tile-leave-active {
+    transition:
+      opacity var(--dur-quick) ease-in,
+      transform var(--dur-quick) ease-in;
+  }
+  .grid .tile-move { transition: transform var(--dur-base) var(--ease-out); }
+  .grid .tile-enter-from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  .grid .tile-leave-to { opacity: 0; transform: scale(0.96); }
 }
 </style>

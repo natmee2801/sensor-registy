@@ -1,12 +1,22 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import type { BrightnessLevel } from '@/types/device'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     level?: BrightnessLevel
     size?: 'sm' | 'md' | 'lg'
   }>(),
   { level: 'off', size: 'md' },
+)
+
+// each change to a lit level mounts a fresh ring, so the bloom plays once per change
+const bloomKey = ref(0)
+watch(
+  () => props.level,
+  (next, prev) => {
+    if (next !== 'off' && next !== prev) bloomKey.value++
+  },
 )
 </script>
 
@@ -18,7 +28,16 @@ withDefaults(
     xmlns="http://www.w3.org/2000/svg"
     aria-hidden="true"
   >
-    <g v-if="level === 'high'" class="bulb__rays">
+    <circle
+      v-if="bloomKey > 0 && level !== 'off'"
+      :key="bloomKey"
+      class="bulb__bloom"
+      cx="12"
+      cy="11"
+      r="6"
+    />
+
+    <g class="bulb__rays">
       <line x1="12" y1="1.5" x2="12" y2="3" />
       <line x1="2.5" y1="11" x2="4" y2="11" />
       <line x1="21.5" y1="11" x2="20" y2="11" />
@@ -96,8 +115,39 @@ withDefaults(
   opacity: 0.95;
 }
 
+.bulb__rays {
+  opacity: 0;
+  transform: scale(0.7);
+  transform-origin: 12px 11px;
+}
+
 .bulb--high .bulb__rays {
   stroke: #fde68a;
+  opacity: 1;
+  transform: scale(1);
+}
+
+.bulb__bloom {
+  fill: none;
+  stroke: #fde68a;
+  stroke-width: 1.2;
+  opacity: 0;
+  transform-origin: 12px 11px;
+  pointer-events: none;
+}
+
+@keyframes bulb-bloom {
+  0% { opacity: 0.75; transform: scale(0.7); }
+  100% { opacity: 0; transform: scale(1.9); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bulb__rays {
+    transition:
+      opacity var(--dur-base) var(--ease-out),
+      transform var(--dur-slow) var(--ease-spring);
+  }
+  .bulb__bloom { animation: bulb-bloom 900ms var(--ease-out) forwards; }
 }
 
 @media (prefers-reduced-motion: reduce) {

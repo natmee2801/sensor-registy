@@ -139,7 +139,14 @@ const handleRemove = async () => {
         <p class="control__label">ระดับความสว่าง</p>
         <BulbVisual :level="isOnline ? brightness : 'off'" size="md" />
       </div>
-      <div class="segmented" role="radiogroup" aria-label="ระดับความสว่าง" :aria-busy="busy">
+      <div
+        class="segmented"
+        role="radiogroup"
+        aria-label="ระดับความสว่าง"
+        :aria-busy="busy"
+        :style="{ '--i': BRIGHTNESS_LEVELS.indexOf(brightness), '--n': 3 }"
+      >
+        <span class="segmented__thumb" :data-tone="brightness" aria-hidden="true" />
         <button
           v-for="level in BRIGHTNESS_LEVELS"
           :key="level"
@@ -166,7 +173,13 @@ const handleRemove = async () => {
 
     <section class="control__section">
       <p class="control__label">โหมด</p>
-      <div class="segmented segmented--two" role="radiogroup" aria-label="โหมด">
+      <div
+        class="segmented segmented--two"
+        role="radiogroup"
+        aria-label="โหมด"
+        :style="{ '--i': deviceMode === 'manual' ? 0 : 1, '--n': 2 }"
+      >
+        <span class="segmented__thumb" aria-hidden="true" />
         <button
           type="button"
           class="segmented__btn"
@@ -205,7 +218,13 @@ const handleRemove = async () => {
           @change="handleScheduleChange"
         />
       </div>
-      <div class="segmented segmented--two segmented--gap" role="radiogroup" aria-label="ระดับเมื่อเปิด">
+      <div
+        class="segmented segmented--two segmented--gap"
+        role="radiogroup"
+        aria-label="ระดับเมื่อเปิด"
+        :style="{ '--i': draftLevel === 'low' ? 0 : 1, '--n': 2 }"
+      >
+        <span class="segmented__thumb" :data-tone="draftLevel" aria-hidden="true" />
         <button
           type="button"
           class="segmented__btn"
@@ -336,6 +355,8 @@ const handleRemove = async () => {
 .segmented--gap { margin-top: 0.4rem; }
 
 .segmented__btn {
+  position: relative;
+  z-index: 1;
   padding: 0.48rem 0.55rem;
   border: 0;
   border-radius: calc(var(--radius-md) - 0.22rem);
@@ -353,28 +374,51 @@ const handleRemove = async () => {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.segmented__btn--active {
-  color: var(--text);
+/* the lit background lives on .segmented__thumb, which slides between options */
+.segmented__btn--active { color: var(--text); }
+.segmented__btn--low.segmented__btn--active { color: var(--warm); }
+.segmented__btn--high.segmented__btn--active { color: var(--warm-strong); }
+
+.segmented__thumb {
+  position: absolute;
+  top: 0.22rem;
+  bottom: 0.22rem;
+  left: 0.22rem;
+  width: calc((100% - 0.44rem - (var(--n) - 1) * 0.22rem) / var(--n));
+  border-radius: calc(var(--radius-md) - 0.22rem);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.03));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
     0 6px 16px rgba(0, 0, 0, 0.32);
+  transform: translateX(calc(var(--i) * (100% + 0.22rem)));
+  pointer-events: none;
 }
 
-.segmented__btn--low.segmented__btn--active {
-  color: var(--warm);
+.segmented__thumb[data-tone='low'] {
   background: linear-gradient(180deg, rgba(252, 211, 77, 0.24), rgba(252, 211, 77, 0.06));
   box-shadow:
     inset 0 1px 0 rgba(253, 224, 71, 0.2),
     0 6px 18px rgba(252, 211, 77, 0.14);
 }
 
-.segmented__btn--high.segmented__btn--active {
-  color: var(--warm-strong);
+.segmented__thumb[data-tone='high'] {
   background: linear-gradient(180deg, rgba(245, 158, 11, 0.3), rgba(245, 158, 11, 0.08));
   box-shadow:
     inset 0 1px 0 rgba(253, 230, 138, 0.22),
     0 6px 18px rgba(245, 158, 11, 0.22);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .segmented__thumb {
+    transition:
+      transform var(--dur-base) var(--ease-spring),
+      background var(--dur-base) ease,
+      box-shadow var(--dur-base) ease;
+  }
+  .segmented__btn {
+    transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease;
+  }
+  .segmented__btn:active:not(:disabled) { transform: scale(0.96); }
 }
 
 .segmented__btn--off.segmented__btn--active { color: var(--text-2); }

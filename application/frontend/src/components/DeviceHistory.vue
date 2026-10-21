@@ -238,7 +238,7 @@ watch(refreshKey, (next, prev) => {
   <section class="history" aria-labelledby="history-title">
     <h2 id="history-title" class="history__title">ประวัติการเปลี่ยนสถานะ</h2>
 
-    <ol v-if="timeline.length > 0" class="timeline">
+    <TransitionGroup v-if="timeline.length > 0" tag="ol" name="log" class="timeline">
       <template v-for="item in timeline" :key="item.key">
         <li v-if="item.type === 'separator'" class="timeline__day">
           {{ item.separatorLabel }}
@@ -288,7 +288,7 @@ watch(refreshKey, (next, prev) => {
           </p>
         </li>
       </template>
-    </ol>
+    </TransitionGroup>
     <p v-else-if="!logsLoading" class="history__empty">
       ยังไม่มีประวัติ ลองสลับสถานะเพื่อดูรายการที่นี่
     </p>
@@ -516,5 +516,24 @@ watch(refreshKey, (next, prev) => {
 .history__more:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+@keyframes log-in {
+  from { opacity: 0; transform: translateY(-10px) scale(0.985); }
+}
+
+/* a new entry settles in and leaves a brief warm trace so the eye finds it */
+@keyframes log-flash {
+  from { background: rgba(252, 211, 77, 0.16); }
+  to { background: transparent; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .log-enter-active { animation: log-in var(--dur-slow) var(--ease-out); }
+  .log-enter-active.entry {
+    border-radius: var(--radius-sm);
+    animation: log-in var(--dur-slow) var(--ease-out), log-flash 1.8s ease-out;
+  }
+  .log-move { transition: transform var(--dur-base) var(--ease-out); }
 }
 </style>
