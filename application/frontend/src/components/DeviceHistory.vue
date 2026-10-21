@@ -177,6 +177,41 @@ const loadLogs = async (reset = false) => {
   }
 }
 
+// A state change only adds entries at the top, so merge the newest page into what is already
+// loaded instead of resetting to page one — a reset threw away every page the user had opened
+// ("โหลดเพิ่ม") and the list shrank back each time the device changed.
+let refreshing = false
+let refreshQueued = false
+
+const refreshLatest = async () => {
+  if (refreshing) {
+    refreshQueued = true
+    return
+  }
+  refreshing = true
+  try {
+    do {
+      refreshQueued = false
+      const res = await store.fetchLogs(props.deviceId, { limit: 10 })
+      const known = new Set(logs.value.map((l) => l._id))
+      const fresh = res.items.filter((l) => !known.has(l._id))
+      if (fresh.length === 0) continue
+      const overlaps = fresh.length < res.items.length
+      if (logs.value.length === 0 || !overlaps) {
+        // first load, or more than a page arrived at once: no overlap to anchor on, start over
+        logs.value = res.items
+        logsCursor.value = res.nextCursor
+      } else {
+        logs.value = [...fresh, ...logs.value]
+      }
+    } while (refreshQueued)
+  } catch {
+    // keep what is on screen
+  } finally {
+    refreshing = false
+  }
+}
+
 onMounted(() => {
   loadLogs(true)
 })
@@ -195,7 +230,7 @@ const refreshKey = computed(() => {
 })
 
 watch(refreshKey, (next, prev) => {
-  if (next && next !== prev) loadLogs(true)
+  if (next && next !== prev) refreshLatest()
 })
 </script>
 
