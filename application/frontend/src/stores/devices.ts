@@ -26,6 +26,8 @@ export const useDevicesStore = defineStore('devices', () => {
   const unclaimed = ref<Record<string, PairingSession>>({})
   const loading = ref(false)
   const lastError = ref<string | null>(null)
+  // in-flight multi-step commands per device — drives the "sending" feedback in the UI
+  const pendingCount = ref<Record<string, number>>({})
 
   const deviceList = computed<Device[]>(() =>
     Object.values(devices.value).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
@@ -42,6 +44,17 @@ export const useDevicesStore = defineStore('devices', () => {
     }
     return out
   })
+
+  const isPending = (id: string) => (pendingCount.value[id] ?? 0) > 0
+
+  const track = async <T>(id: string, run: () => Promise<T>): Promise<T> => {
+    pendingCount.value = { ...pendingCount.value, [id]: (pendingCount.value[id] ?? 0) + 1 }
+    try {
+      return await run()
+    } finally {
+      pendingCount.value = { ...pendingCount.value, [id]: (pendingCount.value[id] ?? 1) - 1 }
+    }
+  }
 
   const hasDevice = (id: string) => Object.prototype.hasOwnProperty.call(devices.value, id)
   const getDevice = (id: string): Device | null => devices.value[id] ?? null
@@ -258,83 +271,88 @@ export const useDevicesStore = defineStore('devices', () => {
     return new Date(Math.max(...ends.map((v) => new Date(v).getTime())))
   }
 
-  const setBrightness = async (id: string, level: BrightnessLevel) => {
-    const s = devices.value[id]?.state
-    if (!s) return
-    for (const o of OUTPUT_IDS) {
-      if (s.outputs[o].offTimerEndsAt) await cancelOffTimer(id, o)
-    }
-    const o1 = devices.value[id]?.state.outputs.out1.isOn ?? false
-    const o2 = devices.value[id]?.state.outputs.out2.isOn ?? false
-    if (level === 'off') {
-      if (o1 || o2) await toggleAll(id, false)
-      return
-    }
-    if (level === 'high') {
-      if (!o1 && !o2) {
-        await toggleAll(id, true)
+  const setBrightness = (id: string, level: BrightnessLevel) =>
+    track(id, async () => {
+      const s = devices.value[id]?.state
+      if (!s) return
+      for (const o of OUTPUT_IDS) {
+        if (s.outputs[o].offTimerEndsAt) await cancelOffTimer(id, o)
+      }
+      const o1 = devices.value[id]?.state.outputs.out1.isOn ?? false
+      const o2 = devices.value[id]?.state.outputs.out2.isOn ?? false
+      if (level === 'off') {
+        if (o1 || o2) await toggleAll(id, false)
         return
       }
-      if (!o1) await toggleOutput(id, 'out1')
-      if (!devices.value[id]?.state.outputs.out2.isOn) await toggleOutput(id, 'out2')
-      return
-    }
-    // low — canonical: out1 on, out2 off
-    if (o2) await toggleOutput(id, 'out2')
-    if (!devices.value[id]?.state.outputs.out1.isOn) await toggleOutput(id, 'out1')
-  }
-
-  const setManualMode = async (id: string) => {
-    for (const o of OUTPUT_IDS) {
-      if (devices.value[id]?.state.outputs[o].controlMode !== 'manual') {
-        await setMode(id, o, 'manual')
+      if (level === 'high') {
+        if (!o1 && !o2) {
+          await toggleAll(id, true)
+          return
+        }
+        if (!o1) await toggleOutput(id, 'out1')
+        if (!devices.value[id]?.state.outputs.out2.isOn) await toggleOutput(id, 'out2')
+        return
       }
-    }
-  }
+      // low — canonical: out1 on, out2 off
+      if (o2) await toggleOutput(id, 'out2')
+      if (!devices.value[id]?.state.outputs.out1.isOn) await toggleOutput(id, 'out1')
+    })
 
-  const setAutoBrightness = async (
+  const setManualMode = (id: string) =>
+    track(id, async () => {
+      for (const o of OUTPUT_IDS) {
+        if (devices.value[id]?.state.outputs[o].controlMode !== 'manual') {
+          await setMode(id, o, 'manual')
+        }
+      }
+    })
+
+  const setAutoBrightness = (
     id: string,
     level: 'low' | 'high',
     autoOnTime: string,
     autoOffTime: string,
-  ) => {
-    for (const o of OUTPUT_IDS) {
-      if (devices.value[id]?.state.outputs[o].offTimerEndsAt) await cancelOffTimer(id, o)
-    }
-    if (level === 'low') {
-      if (devices.value[id]?.state.outputs.out2.controlMode !== 'manual') {
-        await setMode(id, 'out2', 'manual')
+  ) =>
+    track(id, async () => {
+      for (const o of OUTPUT_IDS) {
+        if (devices.value[id]?.state.outputs[o].offTimerEndsAt) await cancelOffTimer(id, o)
       }
-      if (devices.value[id]?.state.outputs.out2.isOn) {
-        await toggleOutput(id, 'out2')
+      if (level === 'low') {
+        if (devices.value[id]?.state.outputs.out2.controlMode !== 'manual') {
+          await setMode(id, 'out2', 'manual')
+        }
+        if (devices.value[id]?.state.outputs.out2.isOn) {
+          await toggleOutput(id, 'out2')
+        }
+        await setAutoTimes(id, 'out1', autoOnTime, autoOffTime)
+        await setMode(id, 'out1', 'auto')
+        return
       }
       await setAutoTimes(id, 'out1', autoOnTime, autoOffTime)
+      await setAutoTimes(id, 'out2', autoOnTime, autoOffTime)
       await setMode(id, 'out1', 'auto')
-      return
-    }
-    await setAutoTimes(id, 'out1', autoOnTime, autoOffTime)
-    await setAutoTimes(id, 'out2', autoOnTime, autoOffTime)
-    await setMode(id, 'out1', 'auto')
-    await setMode(id, 'out2', 'auto')
-  }
+      await setMode(id, 'out2', 'auto')
+    })
 
-  const startBrightnessTimer = async (id: string, durationMs: number) => {
-    const s = devices.value[id]?.state
-    if (!s) return
-    for (const o of OUTPUT_IDS) {
-      if (s.outputs[o].isOn && s.outputs[o].controlMode === 'manual') {
-        await startOffTimer(id, o, durationMs)
+  const startBrightnessTimer = (id: string, durationMs: number) =>
+    track(id, async () => {
+      const s = devices.value[id]?.state
+      if (!s) return
+      for (const o of OUTPUT_IDS) {
+        if (s.outputs[o].isOn && s.outputs[o].controlMode === 'manual') {
+          await startOffTimer(id, o, durationMs)
+        }
       }
-    }
-  }
+    })
 
-  const cancelBrightnessTimer = async (id: string) => {
-    const s = devices.value[id]?.state
-    if (!s) return
-    for (const o of OUTPUT_IDS) {
-      if (s.outputs[o].offTimerEndsAt) await cancelOffTimer(id, o)
-    }
-  }
+  const cancelBrightnessTimer = (id: string) =>
+    track(id, async () => {
+      const s = devices.value[id]?.state
+      if (!s) return
+      for (const o of OUTPUT_IDS) {
+        if (s.outputs[o].offTimerEndsAt) await cancelOffTimer(id, o)
+      }
+    })
 
   const fetchLogs = async (
     id: string,
@@ -375,6 +393,7 @@ export const useDevicesStore = defineStore('devices', () => {
     unclaimedList,
     loading,
     lastError,
+    isPending,
     hasDevice,
     getDevice,
     getState,

@@ -22,6 +22,12 @@ const deviceMode = computed(() => store.getDeviceMode(props.deviceId))
 const autoCfg = computed(() => store.getDeviceAutoTimes(props.deviceId))
 const timerEndsAt = computed(() => store.getDeviceOffTimer(props.deviceId))
 const anyOn = computed(() => brightness.value !== 'off')
+const busy = computed(() => store.isPending(props.deviceId))
+// the level the user just asked for, so its button can show the spinner while the request runs
+const requestedLevel = ref<BrightnessLevel | null>(null)
+watch(busy, (b) => {
+  if (!b) requestedLevel.value = null
+})
 
 const draftLevel = ref<'low' | 'high'>(autoCfg.value?.level ?? 'high')
 const draftOn = ref<string>(autoCfg.value?.autoOnTime ?? '18:00')
@@ -87,6 +93,8 @@ const sameTimeWarning = computed(
 )
 
 const handleBrightness = (level: BrightnessLevel) => {
+  if (busy.value) return
+  requestedLevel.value = level
   store.setBrightness(props.deviceId, level).catch(() => {})
 }
 
@@ -131,7 +139,7 @@ const handleRemove = async () => {
         <p class="control__label">ระดับความสว่าง</p>
         <BulbVisual :level="isOnline ? brightness : 'off'" size="md" />
       </div>
-      <div class="segmented" role="radiogroup" aria-label="ระดับความสว่าง">
+      <div class="segmented" role="radiogroup" aria-label="ระดับความสว่าง" :aria-busy="busy">
         <button
           v-for="level in BRIGHTNESS_LEVELS"
           :key="level"
@@ -141,13 +149,16 @@ const handleRemove = async () => {
             'segmented__btn--active': brightness === level,
             [`segmented__btn--${level}`]: brightness === level,
           }"
-          :disabled="!isOnline || deviceMode === 'auto'"
+          :disabled="!isOnline || deviceMode === 'auto' || busy"
           @click="handleBrightness(level)"
         >
+          <span v-if="busy && requestedLevel === level" class="segmented__spinner" aria-hidden="true" />
           {{ BRIGHTNESS_LABELS[level] }}
         </button>
+        <span v-if="busy" class="segmented__progress" aria-hidden="true" />
       </div>
-      <p v-if="!isOnline" class="control__hint">อุปกรณ์ออฟไลน์ — สั่งงานไม่ได้</p>
+      <p v-if="busy" class="control__hint control__hint--busy" role="status">กำลังสั่งงาน…</p>
+      <p v-else-if="!isOnline" class="control__hint">อุปกรณ์ออฟไลน์ — สั่งงานไม่ได้</p>
       <p v-else-if="deviceMode === 'auto'" class="control__hint">
         โหมดอัตโนมัติกำลังควบคุมอยู่
       </p>
@@ -297,12 +308,18 @@ const handleRemove = async () => {
   color: var(--text-2);
 }
 
+.control__hint--busy {
+  color: var(--warm);
+  font-weight: 500;
+}
+
 .control__hint--warn {
   color: var(--accent-strong);
   font-weight: 500;
 }
 
 .segmented {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 0.22rem;
@@ -365,6 +382,66 @@ const handleRemove = async () => {
 .segmented__btn:disabled {
   cursor: not-allowed;
   opacity: 0.4;
+}
+
+/* while a command is in flight the clicked button stays legible and the rest dim */
+.segmented[aria-busy='true'] .segmented__btn:disabled {
+  cursor: progress;
+}
+.segmented[aria-busy='true'] .segmented__btn--active:disabled,
+.segmented[aria-busy='true'] .segmented__btn:has(.segmented__spinner) {
+  opacity: 1;
+}
+
+.segmented__spinner {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.35rem;
+  vertical-align: -0.1rem;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: segmented-spin 0.7s linear infinite;
+}
+
+.segmented__progress {
+  position: absolute;
+  left: 0.6rem;
+  right: 0.6rem;
+  bottom: -1px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.segmented__progress::after {
+  content: '';
+  display: block;
+  height: 100%;
+  width: 38%;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.7);
+  animation: segmented-slide 1.05s ease-in-out infinite;
+}
+
+@keyframes segmented-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes segmented-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(265%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented__spinner { animation-duration: 1.6s; }
+  .segmented__progress::after {
+    width: 100%;
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 .segmented__btn:focus-visible {
