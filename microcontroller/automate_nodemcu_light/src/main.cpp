@@ -47,6 +47,8 @@ static const unsigned long HELLO_INTERVAL_MS = 5000;
 static const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
 // WiFi หลุดระหว่างทำงาน — รอ auto-reconnect ได้เท่านี้ ถ้าเกินให้ reboot
 static const unsigned long WIFI_LOST_REBOOT_MS = 120000;
+// ต่อ WiFi ตอน boot (hardcoded SSID) — รอได้เท่านี้ ถ้าเกินให้ reboot
+static const unsigned long WIFI_BOOT_TIMEOUT_MS = 60000;
 
 // VC-02-Kit voice module (UART, bidirectional)
 // ESP RX  D7 (GPIO13) ◄── VC-02 TX  — รับ command bytes
@@ -401,7 +403,7 @@ void connectWifi()
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   unsigned long wifiStart = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 30000)
+  while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < WIFI_BOOT_TIMEOUT_MS)
   {
     delay(500);
     Serial.print('.');
