@@ -4,7 +4,10 @@ import { storeToRefs } from 'pinia'
 import { useDevicesStore } from '@/stores/devices'
 import { groupHistory, type Burst, type BurstCause, type BurstRow } from '@/lib/historyBursts'
 import {
+  BRIGHTNESS_LABELS,
+  OUTPUT_BRIGHTNESS_CHIP,
   OUTPUT_LABELS,
+  type BrightnessLevel,
   type DeviceLog,
   type LogDirection,
   type LogType,
@@ -57,7 +60,8 @@ const isOnEvent = (type: LogType) =>
   type === 'cmd_ack' ||
   type === 'hb_sync'
 
-const outputLabel = (output: OutputId | null) => (output ? OUTPUT_LABELS[output] : null)
+const outputLabel = (output: OutputId | null) =>
+  output ? OUTPUT_BRIGHTNESS_CHIP[output] : null
 
 const CAUSE_LABEL: Record<BurstCause, string> = {
   command: 'สั่งงาน',
@@ -67,15 +71,29 @@ const CAUSE_LABEL: Record<BurstCause, string> = {
 
 const onOff = (isOn: boolean | null) => (isOn === null ? '' : isOn ? 'เปิด' : 'ปิด')
 
-const burstTone = (rows: BurstRow[]): 'on' | 'off' | 'mixed' => {
-  if (rows.every((r) => r.isOn === true)) return 'on'
-  if (rows.every((r) => r.isOn === false)) return 'off'
-  return 'mixed'
+// Level a burst ended at, assuming the app's canonical levels (low = out1 only, high = out1 + out2).
+// Rows only hold relays that changed, so a lone out2 row means out1 was already on.
+const burstLevel = (rows: BurstRow[]): BrightnessLevel | null => {
+  const on = (o: OutputId) => rows.find((r) => r.output === o)?.isOn
+  const out1 = on('out1')
+  const out2 = on('out2')
+  if (out1 === true && out2 === true) return 'high'
+  if (out1 === false && out2 === false) return 'off'
+  if (out1 === true && out2 === false) return 'low'
+  if (out1 === undefined && out2 !== undefined && out2 !== null) return out2 ? 'high' : 'low'
+  if (out2 === undefined && out1 === true) return 'low'
+  return null
+}
+
+const burstTone = (b: Burst): 'on' | 'off' | null => {
+  const level = burstLevel(b.rows)
+  if (level === null) return null
+  return level === 'off' ? 'off' : 'on'
 }
 
 const burstHeadline = (b: Burst) => {
-  const tone = burstTone(b.rows)
-  if (b.rows.length > 1 && tone !== 'mixed') return `${onOff(tone === 'on')}ทั้งสองหลอด`
+  const level = burstLevel(b.rows)
+  if (level) return BRIGHTNESS_LABELS[level]
   return b.rows.map((r) => `${OUTPUT_LABELS[r.output]} ${onOff(r.isOn)}`).join(' · ')
 }
 
@@ -202,22 +220,12 @@ watch(refreshKey, (next, prev) => {
             <div
               class="timeline__event"
               :class="{
-                'timeline__event--on': burstTone(item.burst.rows) === 'on',
-                'timeline__event--off': burstTone(item.burst.rows) === 'off',
+                'timeline__event--on': burstTone(item.burst) === 'on',
+                'timeline__event--off': burstTone(item.burst) === 'off',
               }"
             >
               {{ burstHeadline(item.burst) }}
             </div>
-            <ul class="burst__pills">
-              <li
-                v-for="row in item.burst.rows"
-                :key="row.output"
-                class="burst__pill"
-                :class="row.isOn ? 'burst__pill--on' : 'burst__pill--off'"
-              >
-                {{ OUTPUT_LABELS[row.output] }} · {{ onOff(row.isOn) }}
-              </li>
-            </ul>
             <p class="burst__status" :class="`burst__status--${burstStatus(item.burst).tone}`">
               {{ burstStatus(item.burst).text }}
             </p>
@@ -421,36 +429,6 @@ watch(refreshKey, (next, prev) => {
   color: var(--text-2);
   font-size: 0.66rem;
   font-weight: 600;
-}
-
-.burst__pills {
-  list-style: none;
-  margin: 0.25rem 0 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.burst__pill {
-  padding: 0.12rem 0.55rem;
-  border-radius: 999px;
-  border: 1px solid var(--stroke);
-  background: var(--surface-sunk);
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-2);
-}
-
-.burst__pill--on {
-  color: var(--on-text);
-  background: var(--on-soft);
-  border-color: rgba(163, 230, 53, 0.32);
-}
-
-.burst__pill--off {
-  color: var(--offline-text);
-  border-color: var(--stroke-strong);
 }
 
 .burst__status {
