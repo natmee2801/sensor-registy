@@ -12,8 +12,8 @@ export type BrightnessLevel = 'off' | 'low' | 'high'
 export const BRIGHTNESS_LEVELS: BrightnessLevel[] = ['off', 'low', 'high']
 export const BRIGHTNESS_LABELS: Record<BrightnessLevel, string> = {
   off: 'ปิด',
-  low: 'หรี่',
-  high: 'สว่าง',
+  low: 'หลอดที่1',
+  high: 'หลอดที่2',
 }
 export interface OutputState {
   isOn: boolean

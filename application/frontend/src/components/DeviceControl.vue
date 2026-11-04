@@ -136,13 +136,13 @@ const handleRemove = async () => {
   <div v-if="state" class="control">
     <section class="control__section">
       <div class="control__row">
-        <p class="control__label">ระดับความสว่าง</p>
+        <p class="control__label">สถานะของหลอดไฟ</p>
         <BulbVisual :level="isOnline ? brightness : 'off'" size="md" />
       </div>
       <div
         class="segmented"
         role="radiogroup"
-        aria-label="ระดับความสว่าง"
+        aria-label="สถานะของหลอดไฟ"
         :aria-busy="busy"
         :style="{ '--i': BRIGHTNESS_LEVELS.indexOf(brightness), '--n': 3 }"
       >
@@ -234,7 +234,7 @@ const handleRemove = async () => {
           }"
           @click="(draftLevel = 'low'), handleScheduleChange()"
         >
-          หรี่
+          {{ BRIGHTNESS_LABELS.low }}
         </button>
         <button
           type="button"
@@ -245,7 +245,7 @@ const handleRemove = async () => {
           }"
           @click="(draftLevel = 'high'), handleScheduleChange()"
         >
-          สว่าง
+          {{ BRIGHTNESS_LABELS.high }}
         </button>
       </div>
       <p v-if="sameTimeWarning" class="control__hint control__hint--warn">

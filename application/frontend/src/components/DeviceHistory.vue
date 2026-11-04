@@ -57,8 +57,8 @@ const ringTone = (type: LogType) => {
   return 'neutral'
 }
 
-// one name per relay, used everywhere in the history (out1 = หรี่, out2 = สว่าง)
-const RELAY_NAME: Record<OutputId, string> = { out1: 'หลอดหรี่', out2: 'หลอดสว่าง' }
+// one name per relay, used everywhere in the history (out1 = หลอดที่1, out2 = หลอดที่2)
+const RELAY_NAME: Record<OutputId, string> = { out1: 'หลอดที่1', out2: 'หลอดที่2' }
 
 const standaloneDetail = (log: DeviceLog) => {
   if (!log.output) return ''
